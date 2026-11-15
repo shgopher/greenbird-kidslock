@@ -89,6 +89,27 @@ public class LockScreenActivity extends AppCompatActivity {
 
     private final Handler handler = new Handler(Looper.getMainLooper());
 
+    /** 答错后的强制等待时间，防止孩子乱按选项。 */
+    private static final int WRONG_COOLDOWN_SECONDS = 10;
+    private static final long WRONG_COOLDOWN_MS = WRONG_COOLDOWN_SECONDS * 1000L;
+    private int wrongCooldownRemaining = 0;
+    private Button btnParentUnlock;
+
+    private final Runnable cooldownRunnable = new Runnable() {
+        @Override
+        public void run() {
+            // 新一轮已经开始，忽略旧倒计时
+            if (wrongCooldownRemaining <= 0) return;
+            wrongCooldownRemaining--;
+            if (wrongCooldownRemaining > 0) {
+                tvProgress.setText("答错了，请等待 " + wrongCooldownRemaining + " 秒后重新答题");
+                handler.postDelayed(this, 1000);
+            } else {
+                tvProgress.setText("");
+            }
+        }
+    };
+
     /** 4 位 PIN 输错后的延迟清理：留出继续输入 8 位隐藏码的时间。 */
     private final Runnable pinWrongRunnable = new Runnable() {
         @Override
@@ -131,6 +152,7 @@ public class LockScreenActivity extends AppCompatActivity {
         tvStem = findViewById(R.id.tvStem);
         tvProgress = findViewById(R.id.tvProgress);
         tvFeedback = findViewById(R.id.tvFeedback);
+        btnParentUnlock = findViewById(R.id.btnParentUnlock);
 
         optionButtons = new Button[]{
                 findViewById(R.id.btnOption1),
@@ -143,7 +165,7 @@ public class LockScreenActivity extends AppCompatActivity {
             optionButtons[i].setOnClickListener(v -> onOptionSelected(idx));
         }
 
-        findViewById(R.id.btnParentUnlock).setOnClickListener(v -> showPinPad());
+        btnParentUnlock.setOnClickListener(v -> showPinPad());
 
         // PIN 界面
         layoutPin = findViewById(R.id.layoutPin);
@@ -199,6 +221,9 @@ public class LockScreenActivity extends AppCompatActivity {
 
     private void loadRound() {
         bankNotice = "";
+        wrongCooldownRemaining = 0;
+        handler.removeCallbacks(cooldownRunnable);
+        if (btnParentUnlock != null) btnParentUnlock.setEnabled(true);
         // 在线模式：后台线程拉题（Android 6+ 禁止主线程网络）；失败自动回退内置题库
         if (pref.isOnline() && !pref.getServerUrl().isEmpty() && !pref.getChildId().isEmpty()) {
             final String serverUrl = pref.getServerUrl();
@@ -310,6 +335,9 @@ public class LockScreenActivity extends AppCompatActivity {
                 optionButtons[i].setEnabled(false);
             }
         }
+        handler.removeCallbacks(cooldownRunnable);
+        wrongCooldownRemaining = 0;
+        if (btnParentUnlock != null) btnParentUnlock.setEnabled(true);
         updateProgress();
         tvFeedback.setVisibility(View.GONE);
     }
@@ -352,8 +380,14 @@ public class LockScreenActivity extends AppCompatActivity {
             tvFeedback.setText(fb);
             tvFeedback.setTextColor(getResources().getColor(R.color.wrong_red));
             tvFeedback.setVisibility(View.VISIBLE);
-            // 重新开始本轮
-            handler.postDelayed(this::loadRound, 2600);
+
+            // 答错后强制等待 10 秒，期间选项和家长解锁按钮都不可用，防止乱按
+            wrongCooldownRemaining = WRONG_COOLDOWN_SECONDS;
+            tvProgress.setText("答错了，请等待 " + WRONG_COOLDOWN_SECONDS + " 秒后重新答题");
+            if (btnParentUnlock != null) btnParentUnlock.setEnabled(false);
+            handler.removeCallbacks(cooldownRunnable);
+            handler.postDelayed(cooldownRunnable, 1000);
+            handler.postDelayed(this::loadRound, WRONG_COOLDOWN_MS);
         }
     }
 
@@ -669,6 +703,12 @@ public class LockScreenActivity extends AppCompatActivity {
             updatePinDisplay();
         }
         // 锁屏主界面按返回不退出
+    }
+
+    @Override
+    protected void onDestroy() {
+        handler.removeCallbacksAndMessages(null);
+        super.onDestroy();
     }
 
     @Override
