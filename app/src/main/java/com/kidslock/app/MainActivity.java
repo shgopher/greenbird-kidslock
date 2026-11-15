@@ -10,6 +10,7 @@ import android.os.Handler;
 import android.net.Uri;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.util.Log;
 import android.provider.Settings;
 import android.text.InputType;
 import android.view.Gravity;
@@ -30,6 +31,8 @@ import java.util.List;
  */
 public class MainActivity extends AppCompatActivity {
 
+    private static final String TAG = "MainActivity";
+
     private PrefManager pref;
     private QuestionBank bank;
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -41,6 +44,8 @@ public class MainActivity extends AppCompatActivity {
     private Button btnConfigOnline, btnToggleOnline;
     /** 本次打开 App 是否已经自动弹过“开机锁屏权限”引导，避免反复打扰。 */
     private boolean permissionPromptShown = false;
+    /** 刚从系统电池设置页返回时，检查是否真的生效，没生效就提示手动路径。 */
+    private boolean batterySettingsAttempted = false;
 
     private final Runnable updateRunnable = new Runnable() {
         @Override
@@ -76,6 +81,12 @@ public class MainActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         handler.post(updateRunnable);
+        if (batterySettingsAttempted) {
+            batterySettingsAttempted = false;
+            if (!isIgnoringBatteryOptimizations()) {
+                toast("如系统页面没有反应，请重新点“②”并选择“打开应用详情”手动允许后台运行");
+            }
+        }
     }
 
     @Override
@@ -321,17 +332,50 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void requestIgnoreBatteryOptimizations() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return;
+        if (isIgnoringBatteryOptimizations()) {
+            toast("本应用已在省电白名单中，无需设置");
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("加入电池省电白名单")
+                .setMessage("为避免锁屏服务被系统清理，请允许本应用后台运行。\n\n"
+                        + "一般路径：设置 → 应用 → 儿童锁屏 → 电池/省电 → 允许后台运行（或“不限制”）。\n\n"
+                        + "电视系统如果不支持自动跳转，可点“打开应用详情”手动设置。")
+                .setPositiveButton("尝试打开系统设置", (d, w) -> openBatterySettings())
+                .setNeutralButton("打开应用详情", (d, w) -> openAppDetailsSettings())
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    /** 先试系统的“忽略电池优化”确认框，再试电池优化列表；都不行就退到应用详情。 */
+    private void openBatterySettings() {
         try {
-            Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-                    Uri.parse("package:" + getPackageName()));
-            startActivity(intent);
+            batterySettingsAttempted = true;
+            startActivity(new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                    Uri.parse("package:" + getPackageName())));
+            return;
         } catch (Exception e) {
-            try {
-                startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
-            } catch (Exception e2) {
-                toast("请在系统设置 → 电池/省电管理中允许本应用后台运行");
-            }
+            batterySettingsAttempted = false;
+            Log.w(TAG, "battery request page unavailable", e);
+        }
+        try {
+            batterySettingsAttempted = true;
+            startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
+            return;
+        } catch (Exception e) {
+            batterySettingsAttempted = false;
+            Log.w(TAG, "battery settings list unavailable", e);
+        }
+        toast("电视系统没有电池设置页，已打开应用详情，请手动允许后台运行");
+        openAppDetailsSettings();
+    }
+
+    private void openAppDetailsSettings() {
+        try {
+            startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:" + getPackageName())));
+        } catch (Exception e) {
+            toast("请到电视「设置 → 应用」中找到本应用，手动允许后台运行");
         }
     }
 
@@ -345,13 +389,8 @@ public class MainActivity extends AppCompatActivity {
             return;
         } catch (Exception ignored) {
         }
-        try {
-            startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                    Uri.parse("package:" + getPackageName())));
-            toast("若没有自启动选项，请到电视「安全中心 → 自启动管理」中允许本应用");
-        } catch (Exception e) {
-            toast("请到电视「安全中心 → 自启动管理」中允许本应用");
-        }
+        toast("若没有自启动选项，请到电视「安全中心 → 自启动管理」中允许本应用");
+        openAppDetailsSettings();
     }
 
     private void doEnterChildModeAndLock() {
