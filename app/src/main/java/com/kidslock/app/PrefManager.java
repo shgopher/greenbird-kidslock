@@ -31,6 +31,8 @@ public class PrefManager {
     private static final String KEY_TIMER_ACTIVE = "timer_active";
     private static final String KEY_TIMER_END_TIME = "timer_end_time";
     private static final String KEY_PARENT_PIN = "parent_pin";
+    private static final String KEY_MOTHER_YEAR = "mother_birth_year"; // 解锁问题一
+    private static final String KEY_FATHER_YEAR = "father_birth_year"; // 解锁问题二
     private static final String KEY_PIN_FAIL_COUNT = "pin_fail_count";
     private static final String KEY_PIN_LOCK_UNTIL = "pin_lock_until";
     private static final String KEY_MODE = "mode";
@@ -47,8 +49,10 @@ public class PrefManager {
     private static final int DEFAULT_INTERVAL_SECONDS = 10 * 60; // 默认 10 分钟
     private static final int DEFAULT_UNLOCK_COUNT = 3;
     private static final String DEFAULT_PARENT_PIN = "1234";
+    private static final String DEFAULT_MOTHER_YEAR = "1975";
+    private static final String DEFAULT_FATHER_YEAR = "1976";
     private static final int DEFAULT_GRADE = 5;
-    private static final String DEFAULT_EDITION = "人教版";
+    private static final String DEFAULT_EDITION = "通用";
     private static final int MAX_PIN_FAILS = 5;
     private static final long PIN_LOCKOUT_MS = 30_000;
 
@@ -154,7 +158,8 @@ public class PrefManager {
 
     // --- Unlock Question Count ---
     public int getUnlockCount() {
-        return prefs.getInt(KEY_UNLOCK_COUNT, DEFAULT_UNLOCK_COUNT);
+        int v = prefs.getInt(KEY_UNLOCK_COUNT, DEFAULT_UNLOCK_COUNT);
+        return v > 0 ? v : DEFAULT_UNLOCK_COUNT;
     }
 
     public void setUnlockCount(int count) {
@@ -200,6 +205,23 @@ public class PrefManager {
 
     public void setParentPin(String pin) {
         prefs.edit().putString(KEY_PARENT_PIN, pin).apply();
+    }
+
+    // --- 忘记 PIN 的解锁问题（父母出生年份，任一答对即可解锁） ---
+    public String getMotherYear() {
+        return prefs.getString(KEY_MOTHER_YEAR, DEFAULT_MOTHER_YEAR);
+    }
+
+    public String getFatherYear() {
+        return prefs.getString(KEY_FATHER_YEAR, DEFAULT_FATHER_YEAR);
+    }
+
+    /** 设置解锁问题答案：必须两个一起设置，避免只改一个导致另一个仍是默认值。 */
+    public void setSecurityAnswers(String motherYear, String fatherYear) {
+        prefs.edit()
+                .putString(KEY_MOTHER_YEAR, motherYear)
+                .putString(KEY_FATHER_YEAR, fatherYear)
+                .apply();
     }
 
     // --- PIN 防暴力尝试 ---

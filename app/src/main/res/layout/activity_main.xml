@@ -194,6 +194,12 @@
             android:orientation="horizontal"
             android:layout_marginBottom="@dimen/spacing_medium">
 
+            <Button android:id="@+id/btnUnlock1"
+                android:layout_width="wrap_content" android:layout_height="@dimen/btn_height"
+                android:layout_margin="@dimen/btn_margin" android:minWidth="80dp"
+                android:text="1题" android:textSize="@dimen/text_body"
+                android:background="@drawable/btn_settings_bg" android:textColor="@color/btn_text"
+                android:focusable="true" android:clickable="true" />
             <Button android:id="@+id/btnUnlock3"
                 android:layout_width="wrap_content" android:layout_height="@dimen/btn_height"
                 android:layout_margin="@dimen/btn_margin" android:minWidth="80dp"
@@ -268,6 +274,31 @@
             android:textColor="@color/btn_text"
             android:focusable="true"
             android:clickable="true" />
+
+        <!-- 忘记 PIN 时的解锁问题（父母出生年份，任一答对即可解锁） -->
+        <Button
+            android:id="@+id/btnSetSecurity"
+            android:layout_width="wrap_content"
+            android:layout_height="@dimen/btn_height"
+            android:layout_marginTop="@dimen/spacing_small"
+            android:minWidth="300dp"
+            android:text="设置解锁问题（忘记PIN时用）"
+            android:textSize="@dimen/text_button"
+            android:background="@drawable/btn_settings_bg"
+            android:textColor="@color/btn_text"
+            android:focusable="true"
+            android:clickable="true" />
+
+        <TextView
+            android:id="@+id/tvSecurityHint"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="默认 PIN：1234｜默认答案：母亲 1975、父亲 1976，建议修改"
+            android:textColor="@color/text_secondary"
+            android:textSize="@dimen/text_body"
+            android:gravity="center"
+            android:layout_marginTop="@dimen/spacing_small"
+            android:layout_marginBottom="@dimen/spacing_small" />
 
         <!-- ===== 操作 ===== -->
         <TextView

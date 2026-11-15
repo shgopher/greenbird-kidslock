@@ -8,6 +8,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.InputType;
+import android.view.Gravity;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -117,9 +118,9 @@ public class MainActivity extends AppCompatActivity {
             });
         }
 
-        // 解锁题数
-        int[] countButtons = {R.id.btnUnlock3, R.id.btnUnlock5, R.id.btnUnlock10};
-        int[] countValues = {3, 5, 10};
+        // 解锁题数（1 题 = 答对一道即解锁，适合低龄/快速验证）
+        int[] countButtons = {R.id.btnUnlock1, R.id.btnUnlock3, R.id.btnUnlock5, R.id.btnUnlock10};
+        int[] countValues = {1, 3, 5, 10};
         for (int i = 0; i < countButtons.length; i++) {
             final int count = countValues[i];
             findViewById(countButtons[i]).setOnClickListener(v -> {
@@ -149,6 +150,9 @@ public class MainActivity extends AppCompatActivity {
 
         // PIN
         findViewById(R.id.btnSetPin).setOnClickListener(v -> showPinDialog());
+
+        // 忘记 PIN 时的解锁问题（父母出生年份）
+        findViewById(R.id.btnSetSecurity).setOnClickListener(v -> showSecurityQuestionsDialog());
 
         // 开启孩子模式（立即锁屏）
         btnEnableChild.setOnClickListener(v -> enterChildModeAndLock());
@@ -187,27 +191,263 @@ public class MainActivity extends AppCompatActivity {
         startActivity(lockIntent);
     }
 
+    /**
+     * 设置家长 PIN：改用遥控器九宫格数字键，而不是 EditText + 系统输入法。
+     * TV 上 EditText 弹出软键盘后，每输入一位焦点会被对话框按钮抢走（表现为“一输数字就跳到确认键”），
+     * 所以这里和锁屏的 PIN 键盘一样，全程只用可聚焦按钮，不依赖输入法。
+     */
     private void showPinDialog() {
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("设置家长PIN码（4位数字）");
+        final StringBuilder pin = new StringBuilder();
+        final AlertDialog[] holder = new AlertDialog[1];
 
-        final EditText input = new EditText(this);
-        input.setInputType(InputType.TYPE_CLASS_NUMBER);
-        input.setRawInputType(android.text.InputType.TYPE_CLASS_NUMBER);
-        input.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(4)});
-        builder.setView(input);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setGravity(Gravity.CENTER_HORIZONTAL);
+        box.setPadding(dp(32), dp(20), dp(32), dp(20));
+        box.setMinimumWidth(dp(380));
 
-        builder.setPositiveButton("确定", (dialog, which) -> {
-            String pin = input.getText().toString().trim();
-            if (pin.length() == 4) {
-                pref.setParentPin(pin);
-                toast("PIN码已设置");
-            } else {
-                toast("PIN码必须是4位数字");
-            }
+        TextView title = new TextView(this);
+        title.setText("设置家长PIN码（4位数字）");
+        title.setTextColor(getResources().getColor(R.color.accent));
+        title.setTextSize(24);
+        title.setGravity(Gravity.CENTER);
+        box.addView(title);
+
+        final TextView display = new TextView(this);
+        display.setText("○  ○  ○  ○");
+        display.setTextColor(getResources().getColor(R.color.text_primary));
+        display.setTextSize(28);
+        display.setLetterSpacing(0.3f);
+        display.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams displayLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        displayLp.setMargins(0, dp(16), 0, dp(16));
+        box.addView(display, displayLp);
+
+        // 底部“保存”按钮，输入满 4 位后才可用
+        final Button save = pinPadButton("保存");
+        save.setEnabled(false);
+        save.setAlpha(0.5f);
+        save.setOnClickListener(v -> {
+            if (pin.length() != 4) return;
+            pref.setParentPin(pin.toString());
+            toast("PIN码已设置");
+            if (holder[0] != null) holder[0].dismiss();
         });
-        builder.setNegativeButton("取消", null);
-        builder.show();
+
+        // 1~9 三行
+        for (int row = 0; row < 3; row++) {
+            LinearLayout line = new LinearLayout(this);
+            line.setOrientation(LinearLayout.HORIZONTAL);
+            line.setGravity(Gravity.CENTER);
+            for (int col = 0; col < 3; col++) {
+                final int digit = row * 3 + col + 1;
+                Button b = pinPadButton(String.valueOf(digit));
+                b.setOnClickListener(v -> appendPinDigit(pin, digit, display, save));
+                line.addView(b);
+            }
+            box.addView(line);
+        }
+
+        // 清除 | 0 | 取消
+        LinearLayout lastRow = new LinearLayout(this);
+        lastRow.setOrientation(LinearLayout.HORIZONTAL);
+        lastRow.setGravity(Gravity.CENTER);
+
+        Button clear = pinPadButton("清除");
+        clear.setOnClickListener(v -> {
+            pin.setLength(0);
+            updatePinDots(display, 0);
+            save.setEnabled(false);
+            save.setAlpha(0.5f);
+        });
+        lastRow.addView(clear);
+
+        Button zero = pinPadButton("0");
+        zero.setOnClickListener(v -> appendPinDigit(pin, 0, display, save));
+        lastRow.addView(zero);
+
+        Button cancel = pinPadButton("取消");
+        cancel.setOnClickListener(v -> {
+            if (holder[0] != null) holder[0].dismiss();
+        });
+        lastRow.addView(cancel);
+        box.addView(lastRow);
+
+        LinearLayout.LayoutParams saveLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(56));
+        saveLp.setMargins(dp(4), dp(12), dp(4), dp(4));
+        box.addView(save, saveLp);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setView(box)
+                .create();
+        holder[0] = dialog;
+        dialog.show();
+    }
+
+    /** PIN 键盘按钮（遥控器可聚焦）。 */
+    private Button pinPadButton(String text) {
+        Button b = new Button(this);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(76), dp(56));
+        lp.setMargins(dp(4), dp(4), dp(4), dp(4));
+        b.setLayoutParams(lp);
+        b.setText(text);
+        b.setTextSize(20);
+        b.setTextColor(getResources().getColor(R.color.btn_text));
+        b.setBackgroundResource(R.drawable.btn_pin_bg);
+        b.setFocusable(true);
+        b.setClickable(true);
+        b.setAllCaps(false);
+        return b;
+    }
+
+    /** 追加一位 PIN：满 4 位后启用“保存”并把焦点移过去（输入过程中焦点不会乱跳）。 */
+    private void appendPinDigit(StringBuilder pin, int digit, TextView display, Button save) {
+        if (pin.length() >= 4) return;
+        pin.append(digit);
+        updatePinDots(display, pin.length());
+        if (pin.length() == 4) {
+            save.setEnabled(true);
+            save.setAlpha(1f);
+            save.post(() -> save.requestFocus());
+        }
+    }
+
+    private void updatePinDots(TextView display, int filled) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < 4; i++) {
+            if (i > 0) sb.append("  ");
+            sb.append(i < filled ? "●" : "○");
+        }
+        display.setText(sb.toString());
+    }
+
+    // ==================== 忘记 PIN 的解锁问题 ====================
+
+    /** 年份输入回调（不用 java.util.function，兼容低版本 Android）。 */
+    private interface YearCallback {
+        void onYearEntered(int year);
+    }
+
+    /**
+     * 设置“忘记 PIN”的两道解锁问题：必须依次录入母亲、父亲两个出生年份，
+     * 两个都录完才保存，避免只设置一半。
+     */
+    private void showSecurityQuestionsDialog() {
+        showYearEntryDialog("解锁问题 1/2：母亲的出生年份", "下一步", motherYear ->
+                showYearEntryDialog("解锁问题 2/2：父亲的出生年份", "保存", fatherYear -> {
+                    pref.setSecurityAnswers(String.valueOf(motherYear), String.valueOf(fatherYear));
+                    toast("解锁问题已设置：母亲 " + motherYear + " 年，父亲 " + fatherYear + " 年");
+                }));
+    }
+
+    /** 通用年份录入弹窗（遥控器数字键盘，不弹输入法）。 */
+    private void showYearEntryDialog(String titleText, String actionText, YearCallback callback) {
+        final StringBuilder year = new StringBuilder();
+        final AlertDialog[] holder = new AlertDialog[1];
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setGravity(Gravity.CENTER_HORIZONTAL);
+        box.setPadding(dp(32), dp(20), dp(32), dp(20));
+        box.setMinimumWidth(dp(380));
+
+        TextView title = new TextView(this);
+        title.setText(titleText);
+        title.setTextColor(getResources().getColor(R.color.accent));
+        title.setTextSize(22);
+        title.setGravity(Gravity.CENTER);
+        box.addView(title);
+
+        TextView hint = new TextView(this);
+        hint.setText("请输入 4 位出生年份，例如 1975");
+        hint.setTextColor(getResources().getColor(R.color.text_secondary));
+        hint.setTextSize(16);
+        hint.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams hintLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        hintLp.setMargins(0, dp(8), 0, dp(8));
+        box.addView(hint, hintLp);
+
+        final TextView display = new TextView(this);
+        display.setTextColor(getResources().getColor(R.color.text_primary));
+        display.setTextSize(28);
+        display.setLetterSpacing(0.3f);
+        display.setGravity(Gravity.CENTER);
+        updatePinDots(display, 0);
+        LinearLayout.LayoutParams displayLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        displayLp.setMargins(0, dp(8), 0, dp(12));
+        box.addView(display, displayLp);
+
+        final Button action = pinPadButton(actionText);
+        action.setEnabled(false);
+        action.setAlpha(0.5f);
+        action.setOnClickListener(v -> {
+            if (year.length() != 4) return;
+            int value = Integer.parseInt(year.toString());
+            if (value < 1900 || value > 2099) {
+                toast("年份需在 1900–2099 之间");
+                year.setLength(0);
+                updatePinDots(display, 0);
+                action.setEnabled(false);
+                action.setAlpha(0.5f);
+                return;
+            }
+            if (holder[0] != null) holder[0].dismiss();
+            callback.onYearEntered(value);
+        });
+
+        // 1~9 三行
+        for (int row = 0; row < 3; row++) {
+            LinearLayout line = new LinearLayout(this);
+            line.setOrientation(LinearLayout.HORIZONTAL);
+            line.setGravity(Gravity.CENTER);
+            for (int col = 0; col < 3; col++) {
+                final int digit = row * 3 + col + 1;
+                Button b = pinPadButton(String.valueOf(digit));
+                b.setOnClickListener(v -> appendPinDigit(year, digit, display, action));
+                line.addView(b);
+            }
+            box.addView(line);
+        }
+
+        // 清除 | 0 | 取消
+        LinearLayout lastRow = new LinearLayout(this);
+        lastRow.setOrientation(LinearLayout.HORIZONTAL);
+        lastRow.setGravity(Gravity.CENTER);
+
+        Button clear = pinPadButton("清除");
+        clear.setOnClickListener(v -> {
+            year.setLength(0);
+            updatePinDots(display, 0);
+            action.setEnabled(false);
+            action.setAlpha(0.5f);
+        });
+        lastRow.addView(clear);
+
+        Button zero = pinPadButton("0");
+        zero.setOnClickListener(v -> appendPinDigit(year, 0, display, action));
+        lastRow.addView(zero);
+
+        Button cancel = pinPadButton("取消");
+        cancel.setOnClickListener(v -> {
+            if (holder[0] != null) holder[0].dismiss();
+        });
+        lastRow.addView(cancel);
+        box.addView(lastRow);
+
+        LinearLayout.LayoutParams actionLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(56));
+        actionLp.setMargins(dp(4), dp(12), dp(4), dp(4));
+        box.addView(action, actionLp);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setView(box)
+                .create();
+        holder[0] = dialog;
+        dialog.show();
     }
 
     private void showServerDialog() {
@@ -279,7 +519,15 @@ public class MainActivity extends AppCompatActivity {
 
         // 年级 / 科目
         int grade = pref.getGrade();
-        tvGrade.setText("当前年级：" + gradeLabel(grade) + "（教材：" + pref.getEdition() + "）");
+        String gradeLine = "当前年级：" + gradeLabel(grade);
+        // 内置题库目前只录了 5 年级：选了其它年级时提前告知，锁屏界面会自动就近取题
+        if (!bank.hasQuestionsForGrade(grade)) {
+            int fallbackGrade = bank.nearestGradeWithQuestions(grade);
+            if (fallbackGrade > 0) {
+                gradeLine += "\n⚠ 该年级暂无内置题目，锁屏将改用" + fallbackGrade + "年级题目";
+            }
+        }
+        tvGrade.setText(gradeLine);
         List<String> subs = bank.gradeSubjects(grade);
         tvSubjects.setText("科目范围：" + join(subs, "、"));
 

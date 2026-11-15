@@ -35,8 +35,13 @@ public class QuestionBank {
     private static final int READ_TIMEOUT_MS = 6000;
 
     private static final List<String> PRIMARY_SUBJECTS = Arrays.asList("语文", "数学", "英语");
-    private static final List<String> JUNIOR_SUBJECTS =
-            Arrays.asList("语文", "数学", "英语", "物理", "历史", "道德与法治");
+    /** 初中各年级的科目（各年级开设的副科不同，按年级返回）。 */
+    private static final List<String> JUNIOR_G7 = Arrays.asList(
+            "语文", "数学", "英语", "历史", "地理", "生物", "道德与法治");
+    private static final List<String> JUNIOR_G8 = Arrays.asList(
+            "语文", "数学", "英语", "历史", "地理", "生物", "物理", "道德与法治");
+    private static final List<String> JUNIOR_G9 = Arrays.asList(
+            "语文", "数学", "英语", "历史", "物理", "化学", "道德与法治");
 
     public static class Question {
         public String id;
@@ -189,9 +194,18 @@ public class QuestionBank {
 
     // ==================== 选题（离线用） ====================
 
-    /** 年级 → 科目集（小学语数英；初中主科）。 */
+    /** 年级 → 科目集（小学语数英；初中语数英 + 该年级开设的副科）。 */
     public List<String> gradeSubjects(int grade) {
-        return grade <= 6 ? new ArrayList<>(PRIMARY_SUBJECTS) : new ArrayList<>(JUNIOR_SUBJECTS);
+        switch (grade) {
+            case 7:
+                return new ArrayList<>(JUNIOR_G7);
+            case 8:
+                return new ArrayList<>(JUNIOR_G8);
+            case 9:
+                return new ArrayList<>(JUNIOR_G9);
+            default:
+                return new ArrayList<>(PRIMARY_SUBJECTS);
+        }
     }
 
     private List<Question> filter(int grade, List<String> subjects) {
@@ -247,5 +261,30 @@ public class QuestionBank {
 
     public int size() {
         return all.size();
+    }
+
+    /** 该年级是否有内置题目（目前内置题库只覆盖部分年级）。 */
+    public boolean hasQuestionsForGrade(int grade) {
+        return !filter(grade, null).isEmpty();
+    }
+
+    /**
+     * 找离目标年级最近、且确实有题目的年级。
+     * 用于家长选了 1~9 年级、但内置题库没覆盖该年级时的兜底，
+     * 避免锁屏界面出现“暂无题目”把孩子卡死。
+     *
+     * @return 最近的有题年级；题库为空时返回 -1
+     */
+    public int nearestGradeWithQuestions(int grade) {
+        int best = -1;
+        int bestDiff = Integer.MAX_VALUE;
+        for (Question q : all) {
+            int diff = Math.abs(q.grade - grade);
+            if (diff < bestDiff) {
+                bestDiff = diff;
+                best = q.grade;
+            }
+        }
+        return best;
     }
 }

@@ -146,34 +146,79 @@
 
     </LinearLayout>
 
-    <!-- ===================== PIN 输入界面 ===================== -->
-    <LinearLayout
+    <!-- ===================== PIN 输入界面（可滚动，兼容 720p 电视） ===================== -->
+    <ScrollView
         android:id="@+id/layoutPin"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:orientation="vertical"
-        android:gravity="center"
-        android:padding="@dimen/tv_margin_h"
+        android:fillViewport="true"
         android:visibility="gone">
 
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="@dimen/tv_margin_v">
+
         <TextView
+            android:id="@+id/tvPinTitle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/enter_pin"
             android:textColor="@color/accent"
             android:textSize="@dimen/text_subtitle"
-            android:layout_marginBottom="@dimen/spacing_medium" />
+            android:layout_marginBottom="@dimen/spacing_small" />
 
-        <!-- PIN 点 -->
-        <TextView
-            android:id="@+id/tvPinDisplay"
+        <!-- 解锁问题二选一（“忘记密码”模式显示，任一题答对即可解锁） -->
+        <LinearLayout
+            android:id="@+id/layoutRecoveryQuestions"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="○  ○  ○  ○"
-            android:textColor="@color/text_primary"
-            android:textSize="@dimen/text_pin"
-            android:letterSpacing="0.3"
-            android:layout_marginBottom="@dimen/spacing_large" />
+            android:orientation="horizontal"
+            android:visibility="gone">
+
+            <Button android:id="@+id/btnQMother"
+                android:layout_width="wrap_content" android:layout_height="@dimen/btn_height"
+                android:layout_margin="@dimen/btn_margin" android:minWidth="260dp"
+                android:text="问题一：母亲的出生年份" android:textSize="@dimen/text_body"
+                android:background="@drawable/btn_pin_bg" android:textColor="@color/btn_text"
+                android:focusable="true" android:clickable="true" />
+            <Button android:id="@+id/btnQFather"
+                android:layout_width="wrap_content" android:layout_height="@dimen/btn_height"
+                android:layout_margin="@dimen/btn_margin" android:minWidth="260dp"
+                android:text="问题二：父亲的出生年份" android:textSize="@dimen/text_body"
+                android:background="@drawable/btn_pin_bg" android:textColor="@color/btn_text"
+                android:focusable="true" android:clickable="true" />
+        </LinearLayout>
+
+        <!-- PIN 点 + “忘记密码”入口（在 PIN 码右侧） -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="@dimen/spacing_medium">
+
+            <TextView
+                android:id="@+id/tvPinDisplay"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="○  ○  ○  ○"
+                android:textColor="@color/text_primary"
+                android:textSize="@dimen/text_pin"
+                android:letterSpacing="0.3" />
+
+            <Button android:id="@+id/btnForgotPin"
+                android:layout_width="wrap_content" android:layout_height="@dimen/btn_height"
+                android:layout_marginStart="@dimen/spacing_large"
+                android:minWidth="160dp"
+                android:text="忘记密码？"
+                android:textSize="@dimen/text_body"
+                android:background="@drawable/btn_pin_bg"
+                android:textColor="@color/btn_text"
+                android:focusable="true" android:clickable="true" />
+        </LinearLayout>
 
         <!-- 数字键盘 3x4 -->
         <LinearLayout
@@ -332,5 +377,6 @@
         </LinearLayout>
 
     </LinearLayout>
+    </ScrollView>
 
 </FrameLayout>

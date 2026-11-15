@@ -5,6 +5,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.Button;
@@ -17,6 +18,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -29,6 +31,7 @@ import java.util.List;
  */
 public class LockScreenActivity extends AppCompatActivity {
 
+    private static final String TAG = "LockScreen";
     private PrefManager pref;
     private QuestionBank bank;
 
@@ -38,6 +41,8 @@ public class LockScreenActivity extends AppCompatActivity {
     private int requiredCount;
     private QuestionBank.Question current;
     private List<String> currentOptions;
+    /** 题库兜底提示（如“5 年级暂无题，已改用 4 年级题”），为空表示正常。 */
+    private String bankNotice = "";
 
     // 答题结果（用于回传 NAS 后台更新掌握度）
     private final JSONArray resultsJson = new JSONArray();
@@ -54,6 +59,14 @@ public class LockScreenActivity extends AppCompatActivity {
     private View layoutPin;
     private TextView tvPinDisplay;
     private StringBuilder pinInput = new StringBuilder();
+
+    // 忘记密码：回答“母亲/父亲出生年份”，任一答对即可解锁
+    private boolean recoveryMode = false;
+    private int recoveryQuestion = 0; // 1=母亲的出生年份 2=父亲的出生年份
+    private final StringBuilder recoveryInput = new StringBuilder();
+    private TextView tvPinTitle;
+    private View layoutRecoveryQuestions;
+    private Button btnForgotPin;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
 
@@ -101,6 +114,9 @@ public class LockScreenActivity extends AppCompatActivity {
         // PIN 界面
         layoutPin = findViewById(R.id.layoutPin);
         tvPinDisplay = findViewById(R.id.tvPinDisplay);
+        tvPinTitle = findViewById(R.id.tvPinTitle);
+        layoutRecoveryQuestions = findViewById(R.id.layoutRecoveryQuestions);
+        btnForgotPin = findViewById(R.id.btnForgotPin);
 
         int[] pinButtonIds = {
                 R.id.btnPin0, R.id.btnPin1, R.id.btnPin2, R.id.btnPin3,
@@ -112,20 +128,41 @@ public class LockScreenActivity extends AppCompatActivity {
             findViewById(pinButtonIds[i]).setOnClickListener(v -> onPinDigit(digit));
         }
         findViewById(R.id.btnPinClear).setOnClickListener(v -> {
-            pinInput.setLength(0);
-            updatePinDisplay();
+            if (recoveryMode) {
+                recoveryInput.setLength(0);
+                updateRecoveryDisplay();
+            } else {
+                pinInput.setLength(0);
+                updatePinDisplay();
+            }
         });
         findViewById(R.id.btnPinBack).setOnClickListener(v -> {
+            if (recoveryMode) {
+                exitRecoveryMode();
+                return;
+            }
             layoutPin.setVisibility(View.GONE);
             layoutMain.setVisibility(View.VISIBLE);
             pinInput.setLength(0);
             updatePinDisplay();
         });
+
+        // 忘记密码入口：PIN 码右侧
+        btnForgotPin.setOnClickListener(v -> {
+            if (recoveryMode) {
+                exitRecoveryMode();
+            } else {
+                enterRecoveryMode();
+            }
+        });
+        findViewById(R.id.btnQMother).setOnClickListener(v -> selectRecoveryQuestion(1));
+        findViewById(R.id.btnQFather).setOnClickListener(v -> selectRecoveryQuestion(2));
     }
 
     // ==================== 出题 ====================
 
     private void loadRound() {
+        bankNotice = "";
         // 在线模式：后台线程拉题（Android 6+ 禁止主线程网络）；失败自动回退内置题库
         if (pref.isOnline() && !pref.getServerUrl().isEmpty() && !pref.getChildId().isEmpty()) {
             final String serverUrl = pref.getServerUrl();
@@ -140,12 +177,15 @@ public class LockScreenActivity extends AppCompatActivity {
                         QuestionBank.fetchRoundFromServer(serverUrl, childId, grade, edition, requiredCount);
                 runOnUiThread(() -> {
                     if (isFinishing() || isDestroyed()) return;
-                    if (remote != null && !remote.isEmpty()) {
-                        round = remote;
+                    // 在线接口可能返回空题干/空选项的数据，直接展示会出现“锁屏没有题目”，
+                    // 这里先清洗，全部无效则回退内置题库。
+                    List<QuestionBank.Question> validRemote = validQuestions(remote);
+                    if (!validRemote.isEmpty()) {
+                        round = validRemote;
                         roundIndex = 0;
                         loadCurrent();
                     } else {
-                        loadLocalRound(); // 网络失败 → 回退内置题库，保证离线可用
+                        loadLocalRound(); // 网络失败/数据无效 → 回退内置题库，保证离线可用
                     }
                 });
             }).start();
@@ -154,14 +194,44 @@ public class LockScreenActivity extends AppCompatActivity {
         }
     }
 
+    /** 过滤掉题干或选项缺失的题（在线接口数据异常时兜底）。 */
+    private List<QuestionBank.Question> validQuestions(List<QuestionBank.Question> src) {
+        List<QuestionBank.Question> out = new ArrayList<>();
+        if (src == null) return out;
+        for (QuestionBank.Question q : src) {
+            if (q.stem != null && !q.stem.trim().isEmpty()
+                    && q.options != null && q.options.size() >= 2 && q.options.size() <= 4) {
+                out.add(q);
+            }
+        }
+        return out;
+    }
+
     /** 内置题库（离线）出题。 */
     private void loadLocalRound() {
         int grade = pref.getGrade();
         List<String> subjects = bank.gradeSubjects(grade);
         round = bank.getRound(grade, subjects, requiredCount, pref.getMasteryJson());
+        bankNotice = "";
+
+        // 兜底：内置题库目前只录了 5 年级。家长把年级改成 1~4/6~9 后，
+        // 原来会直接显示“暂无题目”并锁死答题区（孩子只能找家长输 PIN）。
+        // 这里改为就近取一个有题的年级，并在进度行标明，避免锁屏空白。
+        if (round.isEmpty() && bank.size() > 0) {
+            int fallbackGrade = bank.nearestGradeWithQuestions(grade);
+            if (fallbackGrade > 0) {
+                round = bank.getRound(fallbackGrade, bank.gradeSubjects(fallbackGrade),
+                        requiredCount, pref.getMasteryJson());
+                bankNotice = "（" + grade + "年级暂无题库，已改用" + fallbackGrade + "年级题）";
+                Log.w(TAG, "grade " + grade + " has no questions, fallback to " + fallbackGrade);
+            }
+        }
+
         if (round.isEmpty()) {
             // 题库为空（不该发生）：避免把孩子锁死，提示家长
-            tvStem.setText("暂无题目，请联系家长添加题库。");
+            tvStem.setText(bank.size() == 0
+                    ? "题库加载失败，请检查内置题库文件。"
+                    : grade + "年级暂无内置题目（当前题库只覆盖部分年级），请到设置页调整年级，或联系家长添加题库。");
             tvProgress.setText("");
             for (Button b : optionButtons) b.setVisibility(View.GONE);
             return;
@@ -178,11 +248,31 @@ public class LockScreenActivity extends AppCompatActivity {
         // 题干较长（如英语）时缩小字号，避免溢出
         tvStem.setTextSize(current.stem.length() > 16 ? 28 : 40);
 
-        for (int i = 0; i < optionButtons.length && i < currentOptions.size(); i++) {
-            optionButtons[i].setVisibility(View.VISIBLE);
-            optionButtons[i].setText(currentOptions.get(i));
-            optionButtons[i].setBackgroundResource(R.drawable.btn_option_bg);
-            optionButtons[i].setEnabled(true);
+        // 选项长短差异很大（如“人民民主专政的社会主义国家”），按最长选项自适应字号，
+        // 避免长选项在固定高度的按钮里被截断。中文按 1 个字宽、英文按 0.55 估算。
+        double maxOptionWidth = 0;
+        for (String o : currentOptions) {
+            if (o == null) continue;
+            double w = 0;
+            for (int k = 0; k < o.length(); k++) {
+                w += o.charAt(k) < 128 ? 0.55 : 1.0;
+            }
+            maxOptionWidth = Math.max(maxOptionWidth, w);
+        }
+        float optionSp = (float) Math.min(20.0, 190.0 / Math.max(1.0, maxOptionWidth));
+
+        // 选项数量不固定（2~4 个）：多余的按钮必须隐藏，否则会残留上一题的旧选项
+        for (int i = 0; i < optionButtons.length; i++) {
+            if (i < currentOptions.size()) {
+                optionButtons[i].setVisibility(View.VISIBLE);
+                optionButtons[i].setText(currentOptions.get(i));
+                optionButtons[i].setTextSize(optionSp);
+                optionButtons[i].setBackgroundResource(R.drawable.btn_option_bg);
+                optionButtons[i].setEnabled(true);
+            } else {
+                optionButtons[i].setVisibility(View.GONE);
+                optionButtons[i].setEnabled(false);
+            }
         }
         updateProgress();
         tvFeedback.setVisibility(View.GONE);
@@ -233,7 +323,8 @@ public class LockScreenActivity extends AppCompatActivity {
 
     private void updateProgress() {
         int total = round != null ? round.size() : requiredCount;
-        tvProgress.setText("第 " + (roundIndex + 1) + "/" + total + " 题 · 本轮全部答对即可解锁");
+        tvProgress.setText("第 " + (roundIndex + 1) + "/" + total + " 题 · 本轮全部答对即可解锁"
+                + bankNotice);
     }
 
     /** 记录一次答题结果，用于本轮结束后回传后台。 */
@@ -289,13 +380,29 @@ public class LockScreenActivity extends AppCompatActivity {
     // ==================== 家长PIN ====================
 
     private void showPinPad() {
+        exitRecoveryMode(); // 从主界面进入时总是回到 PIN 模式
         layoutMain.setVisibility(View.GONE);
         layoutPin.setVisibility(View.VISIBLE);
         pinInput.setLength(0);
         updatePinDisplay();
+        findViewById(R.id.btnPin1).requestFocus();
     }
 
     private void onPinDigit(int digit) {
+        if (recoveryMode) {
+            if (recoveryQuestion == 0) {
+                Toast.makeText(this, "请先选择要回答的问题", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            if (recoveryInput.length() < 4) {
+                recoveryInput.append(digit);
+                updateRecoveryDisplay();
+                if (recoveryInput.length() == 4) {
+                    handler.postDelayed(this::checkRecoveryAnswer, 200);
+                }
+            }
+            return;
+        }
         if (pinInput.length() < 4) {
             pinInput.append(digit);
             updatePinDisplay();
@@ -306,12 +413,71 @@ public class LockScreenActivity extends AppCompatActivity {
     }
 
     private void updatePinDisplay() {
+        tvPinDisplay.setText(pinDots(pinInput.length()));
+    }
+
+    private void updateRecoveryDisplay() {
+        tvPinDisplay.setText(pinDots(recoveryInput.length()));
+    }
+
+    private String pinDots(int filled) {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < 4; i++) {
-            sb.append(i < pinInput.length() ? "●" : "○");
-            if (i < 3) sb.append("  ");
+            if (i > 0) sb.append("  ");
+            sb.append(i < filled ? "●" : "○");
         }
-        tvPinDisplay.setText(sb.toString());
+        return sb.toString();
+    }
+
+    // ==================== 忘记密码：回答解锁问题 ====================
+
+    /** 进入“忘记密码”模式：显示两道题，选一题输入 4 位出生年份。 */
+    private void enterRecoveryMode() {
+        recoveryMode = true;
+        recoveryQuestion = 0;
+        recoveryInput.setLength(0);
+        tvPinTitle.setText("忘记密码：请选择一个问题（任一答对即可）");
+        layoutRecoveryQuestions.setVisibility(View.VISIBLE);
+        pinInput.setLength(0);
+        btnForgotPin.setText("返回 PIN 解锁");
+        updateRecoveryDisplay();
+        findViewById(R.id.btnQMother).requestFocus();
+    }
+
+    private void exitRecoveryMode() {
+        recoveryMode = false;
+        recoveryQuestion = 0;
+        recoveryInput.setLength(0);
+        if (tvPinTitle != null) {
+            tvPinTitle.setText(getString(R.string.enter_pin));
+            layoutRecoveryQuestions.setVisibility(View.GONE);
+            btnForgotPin.setText("忘记密码？");
+        }
+        updatePinDisplay();
+    }
+
+    private void selectRecoveryQuestion(int question) {
+        recoveryQuestion = question;
+        recoveryInput.setLength(0);
+        updateRecoveryDisplay();
+        tvPinTitle.setText(question == 1
+                ? "问题一：母亲的出生年份是？"
+                : "问题二：父亲的出生年份是？");
+        findViewById(R.id.btnPin1).requestFocus();
+    }
+
+    /** 任意一题答对即解锁（与 PIN 解锁同样切到家长模式）。 */
+    private void checkRecoveryAnswer() {
+        if (!recoveryMode || recoveryQuestion == 0) return;
+        String expected = recoveryQuestion == 1 ? pref.getMotherYear() : pref.getFatherYear();
+        if (recoveryInput.toString().equals(expected)) {
+            Toast.makeText(this, "回答正确，已切换到家长模式", Toast.LENGTH_SHORT).show();
+            unlockToParentMode();
+        } else {
+            Toast.makeText(this, "答案不对，可以换另一题再试", Toast.LENGTH_SHORT).show();
+            recoveryInput.setLength(0);
+            updateRecoveryDisplay();
+        }
     }
 
     private void checkPin() {
@@ -351,6 +517,10 @@ public class LockScreenActivity extends AppCompatActivity {
     @Override
     public void onBackPressed() {
         if (layoutPin.getVisibility() == View.VISIBLE) {
+            if (recoveryMode) {
+                exitRecoveryMode();
+                return;
+            }
             layoutPin.setVisibility(View.GONE);
             layoutMain.setVisibility(View.VISIBLE);
             pinInput.setLength(0);
