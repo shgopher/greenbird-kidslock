@@ -67,6 +67,25 @@ public class LockService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         startForeground(NOTIFICATION_ID, buildNotification());
 
+        // 【修复】服务内的 action 必须在这里处理：
+        // 原先写在已废弃的 Service.onStart() 里，而本类重写 onStartCommand 时没有调用
+        // super.onStartCommand()，系统根本不会回调 onStart，导致
+        // ACTION_UNLOCK / ACTION_FREE_WINDOW 永远收不到。
+        String action = intent != null ? intent.getAction() : null;
+        if ("com.kidslock.app.ACTION_UNLOCK".equals(action)) {
+            unlockAndStop();
+            return START_NOT_STICKY;
+        }
+        if ("com.kidslock.app.ACTION_FREE_WINDOW".equals(action)) {
+            // 隐藏悬浮窗；非锁屏且计时活跃 → 进入自由窗口计时
+            hideOverlay();
+            if (!pref.isLocked() && pref.isTimerActive()) {
+                startTicking();
+            }
+            updateNotification();
+            return START_STICKY;
+        }
+
         // 已锁屏 → 进入锁屏守护模式
         if (pref.isLocked()) {
             Log.i(TAG, "Device locked, starting lock watchdog");
@@ -109,6 +128,13 @@ public class LockService extends Service {
         tickRunnable = new Runnable() {
             @Override
             public void run() {
+                // 防御：计时期间模式被切到家长模式（如设置页切到家长模式）时，
+                // 必须立刻停掉服务，否则到点仍会把电视锁上（表现为"切换了没效果"）。
+                if (!pref.isChildMode()) {
+                    Log.i(TAG, "Mode is PARENT, stop timing");
+                    unlockAndStop();
+                    return;
+                }
                 if (pref.isLocked()) {
                     // 已被锁屏接管，切换为守护模式
                     startWatchdog();
@@ -129,6 +155,12 @@ public class LockService extends Service {
     }
 
     private void triggerLock() {
+        // 防御：家长模式下永远不锁屏（模式可能刚被切换）
+        if (!pref.isChildMode()) {
+            Log.i(TAG, "Mode is PARENT, skip locking");
+            unlockAndStop();
+            return;
+        }
         Log.i(TAG, "Triggering lock screen!");
         pref.setLocked(true);
         pref.setHomeAliasEnabled(this, true);
@@ -283,22 +315,6 @@ public class LockService extends Service {
         Intent intent = new Intent(context, LockService.class);
         intent.setAction("com.kidslock.app.ACTION_FREE_WINDOW");
         context.startService(intent);
-    }
-
-    @Override
-    public void onStart(Intent intent, int startId) {
-        super.onStart(intent, startId);
-        if (intent == null) return;
-        if ("com.kidslock.app.ACTION_UNLOCK".equals(intent.getAction())) {
-            unlockAndStop();
-        } else if ("com.kidslock.app.ACTION_FREE_WINDOW".equals(intent.getAction())) {
-            // 隐藏悬浮窗；非锁屏且计时活跃 → 进入自由窗口计时
-            hideOverlay();
-            if (!pref.isLocked() && pref.isTimerActive()) {
-                startTicking();
-            }
-            updateNotification();
-        }
     }
 
     private void unlockAndStop() {

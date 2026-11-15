@@ -37,36 +37,6 @@
             android:textSize="@dimen/text_body"
             android:layout_marginBottom="@dimen/spacing_large" />
 
-        <!-- ===== 运行模式 ===== -->
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="运行模式"
-            android:textColor="@color/highlight"
-            android:textSize="@dimen/text_subtitle"
-            android:layout_marginBottom="@dimen/spacing_small" />
-
-        <TextView
-            android:id="@+id/tvMode"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textColor="@color/text_primary"
-            android:textSize="@dimen/text_body"
-            android:layout_marginBottom="@dimen/spacing_small" />
-
-        <Button
-            android:id="@+id/btnModeToggle"
-            android:layout_width="wrap_content"
-            android:layout_height="@dimen/btn_height"
-            android:layout_marginBottom="@dimen/spacing_medium"
-            android:minWidth="300dp"
-            android:text="切换模式"
-            android:textSize="@dimen/text_button"
-            android:background="@drawable/btn_settings_bg"
-            android:textColor="@color/btn_text"
-            android:focusable="true"
-            android:clickable="true" />
-
         <!-- ===== 孩子信息 ===== -->
         <TextView
             android:layout_width="wrap_content"
@@ -307,6 +277,15 @@
             android:textColor="@color/highlight"
             android:textSize="@dimen/text_subtitle"
             android:layout_marginTop="@dimen/spacing_large"
+            android:layout_marginBottom="@dimen/spacing_small" />
+
+        <!-- 当前模式（只读状态，切换用下面两个按钮） -->
+        <TextView
+            android:id="@+id/tvMode"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/text_primary"
+            android:textSize="@dimen/text_body"
             android:layout_marginBottom="@dimen/spacing_small" />
 
         <Button

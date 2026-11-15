@@ -20,7 +20,7 @@ import java.util.List;
 
 /**
  * 设置主界面（改造版）。
- * 家长可配置：运行模式、孩子年级/科目、出题间隔、解锁题数、PIN。
+ * 家长可配置：家长/孩子模式、孩子年级/科目、出题间隔、解锁题数、PIN。
  * 并可在"孩子模式/家长模式"之间切换。
  */
 public class MainActivity extends AppCompatActivity {
@@ -31,7 +31,7 @@ public class MainActivity extends AppCompatActivity {
 
     private TextView tvStatus, tvRemaining, tvMode, tvGrade, tvSubjects, tvInterval, tvUnlockCount;
     private TextView tvOnline;
-    private Button btnModeToggle, btnGradeDown, btnGradeUp;
+    private Button btnGradeDown, btnGradeUp;
     private Button btnEnableChild, btnEnableParent;
     private Button btnConfigOnline, btnToggleOnline;
 
@@ -84,7 +84,6 @@ public class MainActivity extends AppCompatActivity {
         tvSubjects = findViewById(R.id.tvSubjects);
         tvInterval = findViewById(R.id.tvInterval);
         tvUnlockCount = findViewById(R.id.tvUnlockCount);
-        btnModeToggle = findViewById(R.id.btnModeToggle);
         btnGradeDown = findViewById(R.id.btnGradeDown);
         btnGradeUp = findViewById(R.id.btnGradeUp);
         btnEnableChild = findViewById(R.id.btnEnableChild);
@@ -95,13 +94,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void setupListeners() {
-        // 模式切换
-        btnModeToggle.setOnClickListener(v -> {
-            String next = pref.isChildMode() ? PrefManager.MODE_PARENT : PrefManager.MODE_CHILD;
-            pref.setMode(next);
-            updateStatus();
-            toast(next.equals(PrefManager.MODE_CHILD) ? "已切换到孩子模式" : "已切换到家长模式");
-        });
+        // 模式切换统一放在"操作"区（开启孩子模式 / 切换到家长模式），不再保留顶部重复的切换按钮
 
         // 年级调整（1~9）
         btnGradeDown.setOnClickListener(v -> { pref.setGrade(Math.max(1, pref.getGrade() - 1)); updateStatus(); });
@@ -158,27 +151,40 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.btnSetPin).setOnClickListener(v -> showPinDialog());
 
         // 开启孩子模式（立即锁屏）
-        btnEnableChild.setOnClickListener(v -> {
-            pref.setMode(PrefManager.MODE_CHILD);
-            pref.setLocked(true);
-            pref.setHomeAliasEnabled(this, true);
-            pref.stopTimer();
-            startLockService();
-            Intent lockIntent = new Intent(this, LockScreenActivity.class);
-            lockIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-            startActivity(lockIntent);
-        });
+        btnEnableChild.setOnClickListener(v -> enterChildModeAndLock());
 
         // 切换到家长模式（解锁）
-        btnEnableParent.setOnClickListener(v -> {
-            pref.setMode(PrefManager.MODE_PARENT);
-            pref.setLocked(false);
-            pref.setHomeAliasEnabled(this, false);
-            pref.stopTimer();
-            stopService(new Intent(this, LockService.class));
-            toast("已切换到家长模式，不再弹题");
-            updateStatus();
-        });
+        btnEnableParent.setOnClickListener(v -> enterParentMode());
+    }
+
+    /**
+     * 进入家长模式：解除锁屏、停止自由观看计时和前台服务、关闭 HOME 拦截。
+     * 由“操作-切换到家长模式（解锁）”按钮调用。
+     */
+    private void enterParentMode() {
+        pref.setMode(PrefManager.MODE_PARENT);
+        pref.setLocked(false);
+        pref.setHomeAliasEnabled(this, false);
+        pref.stopTimer();
+        // 停服务会走 onDestroy → hideOverlay()，悬浮窗一并移除
+        stopService(new Intent(this, LockService.class));
+        toast("已切换到家长模式，锁屏已解除，不再弹题");
+        updateStatus();
+    }
+
+    /**
+     * 进入孩子模式并立即锁屏。
+     * 由“操作-开启孩子模式（立即锁屏）”按钮调用。
+     */
+    private void enterChildModeAndLock() {
+        pref.setMode(PrefManager.MODE_CHILD);
+        pref.setLocked(true);
+        pref.setHomeAliasEnabled(this, true);
+        pref.stopTimer();
+        startLockService();
+        Intent lockIntent = new Intent(this, LockScreenActivity.class);
+        lockIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+        startActivity(lockIntent);
     }
 
     private void showPinDialog() {
@@ -270,7 +276,6 @@ public class MainActivity extends AppCompatActivity {
         // 模式
         boolean child = pref.isChildMode();
         tvMode.setText("当前模式：" + (child ? "孩子模式（答题解锁）" : "家长模式（不弹题）"));
-        btnModeToggle.setText(child ? "切换到家长模式" : "切换到孩子模式");
 
         // 年级 / 科目
         int grade = pref.getGrade();

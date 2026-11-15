@@ -271,9 +271,19 @@ public class LockScreenActivity extends AppCompatActivity {
         new Thread(() -> QuestionBank.submitResults(serverUrl, childId, payload)).start();
     }
 
-    /** 家长 PIN 解锁：临时放行（保持孩子模式，进入自由窗口，到点再锁）。 */
-    private void unlockParent() {
-        unlockChild();
+    /**
+     * 家长 PIN 解锁：直接切换到家长模式（不再弹题）。
+     * 效果与设置页“操作-切换到家长模式（解锁）”一致，省去回主界面再手动切换的步骤。
+     */
+    private void unlockToParentMode() {
+        pref.setMode(PrefManager.MODE_PARENT);
+        pref.setLocked(false);
+        pref.setHomeAliasEnabled(this, false);
+        pref.stopTimer();
+        pref.resetPinFailures();
+        LockService.requestUnlock(this); // 停前台服务 + 移除悬浮窗
+        Toast.makeText(this, "已切换到家长模式，不再弹题", Toast.LENGTH_SHORT).show();
+        finishAffinity();
     }
 
     // ==================== 家长PIN ====================
@@ -313,10 +323,8 @@ public class LockScreenActivity extends AppCompatActivity {
             return;
         }
         if (pinInput.toString().equals(pref.getParentPin())) {
-            pref.resetPinFailures();
-            // PIN 仅临时放行：保持孩子模式，进入自由窗口，到点再次锁屏。
-            // 永久"不弹题"请在设置中切换到家长模式。
-            unlockChild();
+            // 家长 PIN 解锁 = 永久切换到家长模式（不再弹题），无需再回设置页手动切换
+            unlockToParentMode();
         } else {
             pref.recordPinFailure();
             Toast.makeText(this, "PIN码错误", Toast.LENGTH_SHORT).show();
