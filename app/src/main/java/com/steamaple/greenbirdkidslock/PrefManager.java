@@ -17,6 +17,8 @@ public class PrefManager {
 
     public static final String MODE_CHILD = "CHILD";
     public static final String MODE_PARENT = "PARENT";
+    /** 首次安装默认家长模式：先让家长完成 PIN/题库设置，再手动开启孩子模式。 */
+    private static final String DEFAULT_MODE = MODE_PARENT;
 
     private static final String PREF_NAME = "kids_lock_prefs";
     private final SharedPreferences prefs;
@@ -77,7 +79,7 @@ public class PrefManager {
 
     // --- Mode ---
     public String getMode() {
-        return prefs.getString(KEY_MODE, MODE_CHILD);
+        return prefs.getString(KEY_MODE, DEFAULT_MODE);
     }
 
     public void setMode(String mode) {
