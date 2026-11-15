@@ -24,7 +24,8 @@ public class PrefManager {
     // Keys
     private static final String KEY_AUTO_START = "auto_start";
     private static final String KEY_WATCH_LIMIT_MIN = "watch_limit_min"; // 兼容保留
-    private static final String KEY_INTERVAL_MIN = "interval_min";
+    private static final String KEY_INTERVAL_MIN = "interval_min"; // 旧版分钟设置，仅用于迁移
+    private static final String KEY_INTERVAL_SEC = "interval_sec"; // 自由观看窗口（秒）
     private static final String KEY_UNLOCK_COUNT = "unlock_count";
     private static final String KEY_IS_LOCKED = "is_locked";
     private static final String KEY_TIMER_ACTIVE = "timer_active";
@@ -42,7 +43,8 @@ public class PrefManager {
 
     // Defaults
     private static final boolean DEFAULT_AUTO_START = true;
-    private static final int DEFAULT_INTERVAL_MIN = 10;
+    private static final int DEFAULT_INTERVAL_MIN = 10;        // 旧版默认（分钟），仅迁移用
+    private static final int DEFAULT_INTERVAL_SECONDS = 10 * 60; // 默认 10 分钟
     private static final int DEFAULT_UNLOCK_COUNT = 3;
     private static final String DEFAULT_PARENT_PIN = "1234";
     private static final int DEFAULT_GRADE = 5;
@@ -121,14 +123,33 @@ public class PrefManager {
         prefs.edit().putString(KEY_CHILD_ID, childId == null ? "" : childId).apply();
     }
 
-    // --- Interval (自由观看窗口，分钟) ---
-    public int getIntervalMinutes() {
-        int v = prefs.getInt(KEY_INTERVAL_MIN, DEFAULT_INTERVAL_MIN);
-        return v > 0 ? v : DEFAULT_INTERVAL_MIN;
+    // --- Interval (自由观看窗口：秒) ---
+
+    /**
+     * 【测试专用】10 秒出题间隔。
+     * 仅用于联调"答题解锁 → 10 秒后自动重新锁屏"的完整链路，方便在电视上快速验证；
+     * 正式给孩子使用时请选择 10 分钟及以上，不要使用该测试值。
+     */
+    public static final int TEST_INTERVAL_SECONDS = 10;
+
+    /**
+     * 出题间隔（秒）。
+     * 兼容旧版本只存分钟的实现：若新 key 尚无值而旧 key(interval_min) 有值，
+     * 自动换算为"分钟 × 60"并迁移过来，避免升级后丢掉家长之前的设置。
+     */
+    public int getIntervalSeconds() {
+        if (!prefs.contains(KEY_INTERVAL_SEC) && prefs.contains(KEY_INTERVAL_MIN)) {
+            int oldMinutes = prefs.getInt(KEY_INTERVAL_MIN, DEFAULT_INTERVAL_MIN);
+            int migrated = oldMinutes > 0 ? oldMinutes * 60 : DEFAULT_INTERVAL_SECONDS;
+            prefs.edit().putInt(KEY_INTERVAL_SEC, migrated).apply();
+            return migrated;
+        }
+        int v = prefs.getInt(KEY_INTERVAL_SEC, DEFAULT_INTERVAL_SECONDS);
+        return v > 0 ? v : DEFAULT_INTERVAL_SECONDS;
     }
 
-    public void setIntervalMinutes(int minutes) {
-        prefs.edit().putInt(KEY_INTERVAL_MIN, minutes).apply();
+    public void setIntervalSeconds(int seconds) {
+        prefs.edit().putInt(KEY_INTERVAL_SEC, seconds).apply();
     }
 
     // --- Unlock Question Count ---
@@ -208,8 +229,13 @@ public class PrefManager {
     }
 
     // --- 自由窗口计时：复用原计时机制 ---
-    public void startTimer(int minutes) {
-        long endTime = System.currentTimeMillis() + (long) minutes * 60 * 1000;
+
+    /**
+     * 启动自由观看窗口（秒）。
+     * 正常使用传入分钟换算后的秒数；传入 {@link #TEST_INTERVAL_SECONDS}(10 秒) 即测试模式。
+     */
+    public void startTimerSeconds(int seconds) {
+        long endTime = System.currentTimeMillis() + (long) seconds * 1000;
         setTimerActive(true);
         setTimerEndTime(endTime);
         setLocked(false);

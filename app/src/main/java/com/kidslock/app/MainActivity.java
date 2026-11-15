@@ -107,16 +107,20 @@ public class MainActivity extends AppCompatActivity {
         btnGradeDown.setOnClickListener(v -> { pref.setGrade(Math.max(1, pref.getGrade() - 1)); updateStatus(); });
         btnGradeUp.setOnClickListener(v -> { pref.setGrade(Math.min(9, pref.getGrade() + 1)); updateStatus(); });
 
-        // 出题间隔
-        int[] intButtons = {R.id.btnInt10, R.id.btnInt15, R.id.btnInt30, R.id.btnInt45,
-                R.id.btnInt60, R.id.btnInt90, R.id.btnInt120};
-        int[] intValues = {10, 15,30,45,60,90,120};
+        // 出题间隔（内部统一按"秒"存；最后一个 10 秒按钮是【测试专用】）
+        // 【测试用】10 秒来自 PrefManager.TEST_INTERVAL_SECONDS，仅用于在电视上快速验证
+        // "答题解锁 → 到点重新锁屏"的循环，正式给孩子使用时请选 10 分钟及以上。
+        int[] intButtons = {R.id.btnInt10s, R.id.btnInt10, R.id.btnInt15, R.id.btnInt30,
+                R.id.btnInt45, R.id.btnInt60, R.id.btnInt90, R.id.btnInt120};
+        int[] intValues = {PrefManager.TEST_INTERVAL_SECONDS,
+                10 * 60, 15 * 60, 30 * 60, 45 * 60, 60 * 60, 90 * 60, 120 * 60};
         for (int i = 0; i < intButtons.length; i++) {
-            final int mins = intValues[i];
+            final int seconds = intValues[i];
             findViewById(intButtons[i]).setOnClickListener(v -> {
-                pref.setIntervalMinutes(mins);
+                pref.setIntervalSeconds(seconds);
                 updateStatus();
-                toast("出题间隔设为 " + mins + " 分钟");
+                toast("出题间隔设为 " + formatInterval(seconds)
+                        + (seconds < 60 ? "（测试用）" : ""));
             });
         }
 
@@ -275,7 +279,8 @@ public class MainActivity extends AppCompatActivity {
         tvSubjects.setText("科目范围：" + join(subs, "、"));
 
         // 间隔 / 题数
-        tvInterval.setText("出题间隔（自由观看）：" + pref.getIntervalMinutes() + " 分钟");
+        // 【测试用】选中 10 秒时这里会显示"10 秒"，方便确认当前处于测试档位
+        tvInterval.setText("出题间隔（自由观看）：" + formatInterval(pref.getIntervalSeconds()));
         tvUnlockCount.setText("解锁题数：" + pref.getUnlockCount() + " 道连续答对");
 
         // 状态
@@ -308,6 +313,12 @@ public class MainActivity extends AppCompatActivity {
                 tvOnline.setText("在线题库：关闭（使用内置题库）");
             }
         }
+    }
+
+    /** 间隔文案：不足 60 秒按秒显示（目前只有【测试专用】的 10 秒档会走到这里）。 */
+    private static String formatInterval(int seconds) {
+        if (seconds < 60) return seconds + " 秒";
+        return (seconds / 60) + " 分钟";
     }
 
     private static String gradeLabel(int grade) {

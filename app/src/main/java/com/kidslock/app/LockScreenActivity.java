@@ -23,7 +23,7 @@ import java.util.List;
  * 锁屏答题界面（改造版）：
  * - 展示一道题（语文/数学/英语，按年级/教材/进度抽取），4 个选项。
  * - 一轮 requiredCount 道题；任一道答错 → 展示参考答案与解析 → 重新开始本轮。
- * - 一轮全对 → 解锁并进入 interval 分钟自由观看，到点再次锁屏。
+ * - 一轮全对 → 解锁并进入 interval 秒（正常为分钟换算）自由观看，到点再次锁屏。
  * - 家长 PIN 解锁 → 切换到家长模式（不再弹题）。
  * - 按 HOME/BACK 无法绕过；断电重启仍锁（由 PrefManager + BootReceiver 保证）。
  */
@@ -249,13 +249,14 @@ public class LockScreenActivity extends AppCompatActivity {
 
     // ==================== 解锁 ====================
 
-    /** 孩子模式：本轮全对后解锁，进入 interval 分钟自由观看，到点再锁。 */
+    /** 孩子模式：本轮全对后解锁，进入 interval 秒自由观看（测试档为 10 秒），到点再锁。 */
     private void unlockChild() {
         pref.setLocked(false);
         pref.setHomeAliasEnabled(this, false);
         pref.resetPinFailures();
         submitIfOnline();
-        pref.startTimer(pref.getIntervalMinutes()); // 启动自由窗口计时
+        // 启动自由窗口计时（单位秒：正式为分钟×60，测试模式下即 10 秒）
+        pref.startTimerSeconds(pref.getIntervalSeconds());
         LockService.requestFreeWindow(this);        // 隐藏悬浮窗，继续守护（到点再锁）
         finishAffinity();
     }

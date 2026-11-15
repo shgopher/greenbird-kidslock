@@ -185,6 +185,31 @@
                 android:focusable="true" android:clickable="true" />
         </LinearLayout>
 
+        <!-- ===== 【测试专用】10 秒出题间隔：仅用于快速联调锁屏链路，正式使用请勿选择 ===== -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="@dimen/spacing_medium">
+
+            <Button android:id="@+id/btnInt10s"
+                android:layout_width="wrap_content" android:layout_height="@dimen/btn_height"
+                android:layout_margin="@dimen/btn_margin" android:minWidth="90dp"
+                android:text="10秒·测试" android:textSize="@dimen/text_body"
+                android:background="@drawable/btn_settings_bg" android:textColor="@color/highlight"
+                android:focusable="true" android:clickable="true" />
+
+            <!-- 【测试专用】提示文案，防止家长误把 10 秒当成正式设置 -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="@dimen/spacing_small"
+                android:text="⚠ 10 秒间隔仅用于测试锁屏流程，正式使用请选 10 分钟以上"
+                android:textColor="@color/text_secondary"
+                android:textSize="@dimen/text_body" />
+        </LinearLayout>
+
         <TextView
             android:id="@+id/tvUnlockCount"
             android:layout_width="wrap_content"
