@@ -35,6 +35,8 @@ public class PrefManager {
     private static final String KEY_FATHER_YEAR = "father_birth_year"; // 解锁问题二
     private static final String KEY_PIN_FAIL_COUNT = "pin_fail_count";
     private static final String KEY_PIN_LOCK_UNTIL = "pin_lock_until";
+    private static final String KEY_SECURITY_FAIL_COUNT = "security_fail_count";
+    private static final String KEY_SECURITY_LOCK_UNTIL = "security_lock_until";
     private static final String KEY_MODE = "mode";
     private static final String KEY_GRADE = "grade";
     private static final String KEY_EDITION = "edition";
@@ -53,8 +55,12 @@ public class PrefManager {
     private static final String DEFAULT_FATHER_YEAR = "1976";
     private static final int DEFAULT_GRADE = 5;
     private static final String DEFAULT_EDITION = "通用";
-    private static final int MAX_PIN_FAILS = 5;
-    private static final long PIN_LOCKOUT_MS = 30_000;
+    /** 普通 PIN：错 2 次锁定 10 分钟（隐藏总解锁码不受影响）。 */
+    private static final int MAX_PIN_FAILS = 2;
+    private static final long PIN_LOCKOUT_MS = 10 * 60 * 1000L;
+    /** 解锁问题（父母出生年份）：错 2 次锁定 40 分钟（与 PIN 分开计数，PIN 仍可用）。 */
+    private static final int MAX_SECURITY_FAILS = 2;
+    private static final long SECURITY_LOCKOUT_MS = 40 * 60 * 1000L;
 
     public PrefManager(Context context) {
         prefs = context.getApplicationContext().getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
@@ -248,6 +254,32 @@ public class PrefManager {
 
     public void resetPinFailures() {
         prefs.edit().putInt(KEY_PIN_FAIL_COUNT, 0).putLong(KEY_PIN_LOCK_UNTIL, 0).apply();
+    }
+
+    // --- 解锁问题（父母出生年份）的独立锁定：错 2 次锁 40 分钟 ---
+    public boolean isSecurityLocked() {
+        return System.currentTimeMillis() < prefs.getLong(KEY_SECURITY_LOCK_UNTIL, 0);
+    }
+
+    public long getSecurityLockRemainingMillis() {
+        long until = prefs.getLong(KEY_SECURITY_LOCK_UNTIL, 0);
+        return Math.max(0, until - System.currentTimeMillis());
+    }
+
+    public void recordSecurityFailure() {
+        int fails = prefs.getInt(KEY_SECURITY_FAIL_COUNT, 0) + 1;
+        if (fails >= MAX_SECURITY_FAILS) {
+            prefs.edit()
+                    .putInt(KEY_SECURITY_FAIL_COUNT, 0)
+                    .putLong(KEY_SECURITY_LOCK_UNTIL, System.currentTimeMillis() + SECURITY_LOCKOUT_MS)
+                    .apply();
+        } else {
+            prefs.edit().putInt(KEY_SECURITY_FAIL_COUNT, fails).apply();
+        }
+    }
+
+    public void resetSecurityFailures() {
+        prefs.edit().putInt(KEY_SECURITY_FAIL_COUNT, 0).putLong(KEY_SECURITY_LOCK_UNTIL, 0).apply();
     }
 
     // --- 自由窗口计时：复用原计时机制 ---

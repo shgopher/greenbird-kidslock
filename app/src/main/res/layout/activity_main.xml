@@ -358,6 +358,29 @@
             android:focusable="true"
             android:clickable="true" />
 
+        <!-- 防卸载保护（设备管理器）：可选，提高卸载门槛 -->
+        <Button
+            android:id="@+id/btnAdminProtect"
+            android:layout_width="wrap_content"
+            android:layout_height="@dimen/btn_height"
+            android:layout_margin="@dimen/btn_margin"
+            android:minWidth="300dp"
+            android:text="开启防卸载保护（设备管理器）"
+            android:textSize="@dimen/text_button"
+            android:background="@drawable/btn_settings_bg"
+            android:textColor="@color/btn_text"
+            android:focusable="true"
+            android:clickable="true" />
+
+        <TextView
+            android:id="@+id/tvAdminHint"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/text_secondary"
+            android:textSize="@dimen/text_body"
+            android:gravity="center"
+            android:layout_marginBottom="@dimen/spacing_small" />
+
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

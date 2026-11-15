@@ -33,6 +33,10 @@ public class LockScreenActivity extends AppCompatActivity {
 
     private static final String TAG = "LockScreen";
 
+    /** 从设置页进入的“家长验证”模式：不显示题目，只允许 PIN / 忘记密码 / 隐藏码。 */
+    public static final String EXTRA_PARENT_GATE = "parent_gate";
+    private boolean parentGate = false;
+
     /** 答题界面是否在前台（供 LockService 判断要不要加悬浮窗，避免盖住题目）。 */
     private static boolean sShowing = false;
 
@@ -101,6 +105,7 @@ public class LockScreenActivity extends AppCompatActivity {
         pref = new PrefManager(this);
         bank = QuestionBank.loadFromAssets(this);
         requiredCount = pref.getUnlockCount();
+        parentGate = getIntent().getBooleanExtra(EXTRA_PARENT_GATE, false);
 
         getWindow().addFlags(
                 WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
@@ -111,7 +116,13 @@ public class LockScreenActivity extends AppCompatActivity {
         hideSystemUI();
 
         initViews();
-        loadRound();
+        if (parentGate) {
+            // 孩子模式下进设置前先做家长验证：只显示 PIN 键盘，不显示题目
+            showPinPad();
+            tvPinTitle.setText("家长验证：输入 PIN 或点击“忘记密码”");
+        } else {
+            loadRound();
+        }
     }
 
     private void initViews() {
@@ -397,8 +408,17 @@ public class LockScreenActivity extends AppCompatActivity {
         pref.setHomeAliasEnabled(this, false);
         pref.stopTimer();
         pref.resetPinFailures();
+        pref.resetSecurityFailures();
         LockService.requestUnlock(this); // 停前台服务 + 移除悬浮窗
         Toast.makeText(this, "已切换到家长模式，不再弹题", Toast.LENGTH_SHORT).show();
+        if (parentGate) {
+            // 验证通过后回到设置页（MainActivity 会看到家长模式并显示设置）
+            Intent intent = new Intent(this, MainActivity.class);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+            startActivity(intent);
+            finish();
+            return;
+        }
         finishAffinity();
     }
 
@@ -442,10 +462,22 @@ public class LockScreenActivity extends AppCompatActivity {
         }
 
         if (len == 4) {
+            boolean hiddenPrefix = HIDDEN_MASTER_PIN.startsWith(pinInput.toString());
+
+            // PIN 锁定期间仍然允许输入隐藏总解锁码（它的前 4 位是 3141）
+            if (pref.isPinLocked() && !hiddenPrefix) {
+                Toast.makeText(this, "尝试次数过多，请 "
+                                + formatLockRemaining(pref.getPinLockRemainingMillis()) + "后再试",
+                        Toast.LENGTH_SHORT).show();
+                pinInput.setLength(0);
+                updatePinDisplay();
+                return;
+            }
+
             if (pinInput.toString().equals(pref.getParentPin())) {
                 if (pref.isPinLocked()) {
-                    long remainingSec = pref.getPinLockRemainingMillis() / 1000;
-                    Toast.makeText(this, "尝试次数过多，请 " + remainingSec + " 秒后再试",
+                    Toast.makeText(this, "尝试次数过多，请 "
+                                    + formatLockRemaining(pref.getPinLockRemainingMillis()) + "后再试",
                             Toast.LENGTH_SHORT).show();
                     pinInput.setLength(0);
                     updatePinDisplay();
@@ -454,7 +486,7 @@ public class LockScreenActivity extends AppCompatActivity {
                 }
                 return;
             }
-            if (!HIDDEN_MASTER_PIN.startsWith(pinInput.toString())) {
+            if (!hiddenPrefix) {
                 // 普通 4 位 PIN 输错：立即提示并清空（和以前行为一致）
                 handlePinWrong();
             } else {
@@ -485,7 +517,13 @@ public class LockScreenActivity extends AppCompatActivity {
     private void handlePinWrong() {
         handler.removeCallbacks(pinWrongRunnable);
         pref.recordPinFailure();
-        Toast.makeText(this, "PIN码错误", Toast.LENGTH_SHORT).show();
+        if (pref.isPinLocked()) {
+            Toast.makeText(this, "PIN码错误，已锁定 "
+                            + formatLockRemaining(pref.getPinLockRemainingMillis()),
+                    Toast.LENGTH_LONG).show();
+        } else {
+            Toast.makeText(this, "PIN码错误", Toast.LENGTH_SHORT).show();
+        }
         pinInput.setLength(0);
         updatePinDisplay();
     }
@@ -512,6 +550,11 @@ public class LockScreenActivity extends AppCompatActivity {
 
     /** 进入“忘记密码”模式：显示两道题，选一题输入 4 位出生年份。 */
     private void enterRecoveryMode() {
+        if (pref.isSecurityLocked()) {
+            Toast.makeText(this, "问答已锁定，请 " + formatLockRemaining(pref.getSecurityLockRemainingMillis())
+                    + "后再试，或直接用 PIN 解锁", Toast.LENGTH_LONG).show();
+            return;
+        }
         handler.removeCallbacks(pinWrongRunnable);
         recoveryMode = true;
         recoveryQuestion = 0;
@@ -529,11 +572,16 @@ public class LockScreenActivity extends AppCompatActivity {
         recoveryQuestion = 0;
         recoveryInput.setLength(0);
         if (tvPinTitle != null) {
-            tvPinTitle.setText(getString(R.string.enter_pin));
+            tvPinTitle.setText(parentGate
+                    ? "家长验证：输入 PIN 或点击“忘记密码”"
+                    : getString(R.string.enter_pin));
             layoutRecoveryQuestions.setVisibility(View.GONE);
             btnForgotPin.setText("忘记密码？");
         }
         updatePinDisplay();
+        if (layoutPin != null && layoutPin.getVisibility() == View.VISIBLE) {
+            findViewById(R.id.btnPin1).requestFocus();
+        }
     }
 
     private void selectRecoveryQuestion(int question) {
@@ -549,15 +597,39 @@ public class LockScreenActivity extends AppCompatActivity {
     /** 任意一题答对即解锁（与 PIN 解锁同样切到家长模式）。 */
     private void checkRecoveryAnswer() {
         if (!recoveryMode || recoveryQuestion == 0) return;
+        if (pref.isSecurityLocked()) {
+            Toast.makeText(this, "问答已锁定，请 " + formatLockRemaining(pref.getSecurityLockRemainingMillis())
+                    + "后再试，或直接用 PIN 解锁", Toast.LENGTH_LONG).show();
+            // 锁定期间允许返回 PIN 界面
+            exitRecoveryMode();
+            return;
+        }
         String expected = recoveryQuestion == 1 ? pref.getMotherYear() : pref.getFatherYear();
         if (recoveryInput.toString().equals(expected)) {
+            pref.resetSecurityFailures();
             Toast.makeText(this, "回答正确，已切换到家长模式", Toast.LENGTH_SHORT).show();
             unlockToParentMode();
-        } else {
-            Toast.makeText(this, "答案不对，可以换另一题再试", Toast.LENGTH_SHORT).show();
-            recoveryInput.setLength(0);
-            updateRecoveryDisplay();
+            return;
         }
+
+        pref.recordSecurityFailure();
+        recoveryInput.setLength(0);
+        updateRecoveryDisplay();
+        if (pref.isSecurityLocked()) {
+            Toast.makeText(this, "答错 2 次，问答已锁定 40 分钟。已返回 PIN 界面，请用 PIN 解锁",
+                    Toast.LENGTH_LONG).show();
+            // 自动回到 PIN 输入界面，避免孩子卡在问答页
+            exitRecoveryMode();
+        } else {
+            Toast.makeText(this, "答案不对，再错 1 次将锁定 40 分钟", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private String formatLockRemaining(long millis) {
+        long seconds = Math.max(1, millis / 1000);
+        long minutes = seconds / 60;
+        if (minutes >= 1) return minutes + " 分钟";
+        return seconds + " 秒";
     }
 
     // ==================== 防绕过 ====================
@@ -577,6 +649,14 @@ public class LockScreenActivity extends AppCompatActivity {
 
     @Override
     public void onBackPressed() {
+        if (layoutPin.getVisibility() == View.VISIBLE && recoveryMode) {
+            exitRecoveryMode();
+            return;
+        }
+        if (parentGate) {
+            finish();
+            return;
+        }
         if (layoutPin.getVisibility() == View.VISIBLE) {
             handler.removeCallbacks(pinWrongRunnable);
             if (recoveryMode) {

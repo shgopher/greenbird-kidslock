@@ -1,7 +1,9 @@
 package com.steamaple.greenbirdkidslock;
 
 import android.app.AlertDialog;
+import android.app.admin.DevicePolicyManager;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.os.Build;
@@ -40,12 +42,15 @@ public class MainActivity extends AppCompatActivity {
     private TextView tvStatus, tvRemaining, tvMode, tvGrade, tvSubjects, tvInterval, tvUnlockCount, tvOverlayHint;
     private TextView tvOnline;
     private Button btnGradeDown, btnGradeUp;
-    private Button btnEnableChild, btnEnableParent;
+    private Button btnEnableChild, btnEnableParent, btnAdminProtect;
+    private TextView tvAdminHint;
     private Button btnConfigOnline, btnToggleOnline;
     /** 本次打开 App 是否已经自动弹过“开机锁屏权限”引导，避免反复打扰。 */
     private boolean permissionPromptShown = false;
     /** 刚从系统电池设置页返回时，检查是否真的生效，没生效就提示手动路径。 */
     private boolean batterySettingsAttempted = false;
+    /** 若本机是 Device Owner，只调用一次 setUninstallBlocked。 */
+    private boolean ownerUninstallBlocked = false;
 
     private final Runnable updateRunnable = new Runnable() {
         @Override
@@ -66,6 +71,17 @@ public class MainActivity extends AppCompatActivity {
             Intent lockIntent = new Intent(this, LockScreenActivity.class);
             lockIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
             startActivity(lockIntent);
+            finish();
+            return;
+        }
+
+        // 孩子模式下（包括答题后的自由观看窗口），进设置前必须先做家长验证，
+        // 否则孩子可以直接改 PIN、改解锁问题或切到家长模式。
+        if (pref.isChildMode()) {
+            Intent gate = new Intent(this, LockScreenActivity.class);
+            gate.putExtra(LockScreenActivity.EXTRA_PARENT_GATE, true);
+            gate.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+            startActivity(gate);
             finish();
             return;
         }
@@ -113,6 +129,8 @@ public class MainActivity extends AppCompatActivity {
         btnGradeUp = findViewById(R.id.btnGradeUp);
         btnEnableChild = findViewById(R.id.btnEnableChild);
         btnEnableParent = findViewById(R.id.btnEnableParent);
+        btnAdminProtect = findViewById(R.id.btnAdminProtect);
+        tvAdminHint = findViewById(R.id.tvAdminHint);
         tvOnline = findViewById(R.id.tvOnline);
         btnConfigOnline = findViewById(R.id.btnConfigOnline);
         btnToggleOnline = findViewById(R.id.btnToggleOnline);
@@ -183,6 +201,9 @@ public class MainActivity extends AppCompatActivity {
 
         // 切换到家长模式（解锁）
         btnEnableParent.setOnClickListener(v -> enterParentMode());
+
+        // 防卸载保护：设备管理器（可选，需用户手动激活）
+        btnAdminProtect.setOnClickListener(v -> toggleAdminProtection());
     }
 
     /**
@@ -409,6 +430,57 @@ public class MainActivity extends AppCompatActivity {
      * TV 上 EditText 弹出软键盘后，每输入一位焦点会被对话框按钮抢走（表现为“一输数字就跳到确认键”），
      * 所以这里和锁屏的 PIN 键盘一样，全程只用可聚焦按钮，不依赖输入法。
      */
+    private ComponentName adminComponent() {
+        return new ComponentName(this, KidsLockDeviceAdminReceiver.class);
+    }
+
+    private boolean isAdminActive() {
+        DevicePolicyManager dpm = (DevicePolicyManager) getSystemService(Context.DEVICE_POLICY_SERVICE);
+        return dpm != null && dpm.isAdminActive(adminComponent());
+    }
+
+    /**
+     * 开启/关闭“设备管理器”防卸载保护。
+     * 注意：普通应用无法真正禁止卸载；启用后系统会要求先停用设备管理器才能卸载。
+     */
+    private void toggleAdminProtection() {
+        DevicePolicyManager dpm = (DevicePolicyManager) getSystemService(Context.DEVICE_POLICY_SERVICE);
+        ComponentName admin = adminComponent();
+        if (dpm == null) {
+            toast("当前电视不支持设备管理器");
+            return;
+        }
+
+        if (dpm.isAdminActive(admin)) {
+            new AlertDialog.Builder(this)
+                    .setTitle("关闭防卸载保护？")
+                    .setMessage("关闭后，本应用会像普通应用一样可以被直接卸载。")
+                    .setPositiveButton("关闭", (d, w) -> {
+                        try {
+                            dpm.removeActiveAdmin(admin);
+                            ownerUninstallBlocked = false;
+                            toast("已关闭防卸载保护");
+                        } catch (Exception e) {
+                            toast("取消失败，请到系统设置 → 设备管理器中停用");
+                        }
+                        updateStatus();
+                    })
+                    .setNegativeButton("取消", null)
+                    .show();
+            return;
+        }
+
+        Intent intent = new Intent(Settings.ACTION_ADD_DEVICE_ADMIN);
+        intent.putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, admin);
+        intent.putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION,
+                "开启后，卸载本应用前必须先停用设备管理器，用于防止孩子误卸载。");
+        try {
+            startActivity(intent);
+        } catch (Exception e) {
+            toast("系统没有设备管理器页面，无法开启防卸载保护");
+        }
+    }
+
     private void showPinDialog() {
         final StringBuilder pin = new StringBuilder();
         final AlertDialog[] holder = new AlertDialog[1];
@@ -782,6 +854,32 @@ public class MainActivity extends AppCompatActivity {
             tvStatus.setText("当前状态：待命");
             tvStatus.setTextColor(getResources().getColor(R.color.text_secondary));
             tvRemaining.setText("");
+        }
+
+        // 防卸载保护状态
+        if (btnAdminProtect != null && tvAdminHint != null) {
+            boolean adminActive = isAdminActive();
+            btnAdminProtect.setText(adminActive
+                    ? "关闭防卸载保护（关闭后才能卸载）"
+                    : "开启防卸载保护（设备管理器）");
+            tvAdminHint.setText(adminActive
+                    ? "防卸载保护：已开启（卸载前需先在系统设置里停用设备管理器）"
+                    : "防卸载保护：未开启（孩子可以直接卸载本应用）");
+            tvAdminHint.setTextColor(getResources().getColor(
+                    adminActive ? R.color.correct_green : R.color.wrong_red));
+
+            // 如果本机已配置为 Device Owner，可以真正禁止卸载（普通设备做不到）
+            DevicePolicyManager dpm = (DevicePolicyManager) getSystemService(Context.DEVICE_POLICY_SERVICE);
+            try {
+                if (!adminActive) {
+                    ownerUninstallBlocked = false;
+                } else if (!ownerUninstallBlocked && dpm != null
+                        && dpm.isDeviceOwnerApp(getPackageName())) {
+                    dpm.setUninstallBlocked(adminComponent(), getPackageName(), true);
+                    ownerUninstallBlocked = true;
+                }
+            } catch (Exception ignored) {
+            }
         }
 
         // 在线题库状态
