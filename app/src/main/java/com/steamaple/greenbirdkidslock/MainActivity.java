@@ -470,7 +470,7 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        Intent intent = new Intent(Settings.ACTION_ADD_DEVICE_ADMIN);
+        Intent intent = new Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN);
         intent.putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, admin);
         intent.putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION,
                 "开启后，卸载本应用前必须先停用设备管理器，用于防止孩子误卸载。");
