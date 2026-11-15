@@ -1,5 +1,5 @@
 # 绿鸟儿童锁屏大师 · 电视答题锁屏（家长/孩子模式）
-
+[下载地址](https://github.com/shgopher/greenbird-kidslock/releases/latest)
 一款专为小米电视（Android TV / PatchWall）设计的绿鸟儿童锁屏大师应用。改造自开源 KidsLock：把原"计时→到期锁屏"升级为"**答题通关 → 自由窗口 → 到期再锁**"循环，题目按孩子的**年级 / 科目 / 学习进度**自动生成。
 
 ## 界面预览
