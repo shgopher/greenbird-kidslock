@@ -6,7 +6,9 @@ import android.content.Intent;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
+import android.net.Uri;
 import android.os.Looper;
+import android.provider.Settings;
 import android.text.InputType;
 import android.view.Gravity;
 import android.widget.Button;
@@ -30,11 +32,13 @@ public class MainActivity extends AppCompatActivity {
     private QuestionBank bank;
     private final Handler handler = new Handler(Looper.getMainLooper());
 
-    private TextView tvStatus, tvRemaining, tvMode, tvGrade, tvSubjects, tvInterval, tvUnlockCount;
+    private TextView tvStatus, tvRemaining, tvMode, tvGrade, tvSubjects, tvInterval, tvUnlockCount, tvOverlayHint;
     private TextView tvOnline;
     private Button btnGradeDown, btnGradeUp;
     private Button btnEnableChild, btnEnableParent;
     private Button btnConfigOnline, btnToggleOnline;
+    /** 本次打开 App 是否已经自动弹过“悬浮窗权限”提示，避免反复打扰。 */
+    private boolean overlayPromptShown = false;
 
     private final Runnable updateRunnable = new Runnable() {
         @Override
@@ -63,6 +67,7 @@ public class MainActivity extends AppCompatActivity {
         initViews();
         setupListeners();
         updateStatus();
+        promptOverlayPermissionIfNeeded();
     }
 
     @Override
@@ -81,6 +86,14 @@ public class MainActivity extends AppCompatActivity {
         tvStatus = findViewById(R.id.tvStatus);
         tvRemaining = findViewById(R.id.tvRemaining);
         tvMode = findViewById(R.id.tvMode);
+        tvOverlayHint = findViewById(R.id.tvOverlayHint);
+        tvOverlayHint.setOnClickListener(v -> {
+            if (needsOverlayPermission()) {
+                openOverlaySettings();
+            } else {
+                toast("悬浮窗权限已开启");
+            }
+        });
         tvGrade = findViewById(R.id.tvGrade);
         tvSubjects = findViewById(R.id.tvSubjects);
         tvInterval = findViewById(R.id.tvInterval);
@@ -178,9 +191,62 @@ public class MainActivity extends AppCompatActivity {
 
     /**
      * 进入孩子模式并立即锁屏。
-     * 由“操作-开启孩子模式（立即锁屏）”按钮调用。
+     * Android 10+ 后台不能直接弹 Activity，必须先确认悬浮窗权限，
+     * 否则到点不会自动出现答题界面、按 HOME 也能绕过。
      */
     private void enterChildModeAndLock() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+            new AlertDialog.Builder(this)
+                    .setTitle("建议开启「悬浮窗」权限")
+                    .setMessage("从 Android 10 开始，系统会拦截后台自动弹出答题界面。\n"
+                            + "开启「悬浮窗/显示在其他应用上层」后，到点会用全屏悬浮窗挡住电视，点击即可答题；"
+                            + "不开启时，按 HOME 也可能绕过锁屏。")
+                    .setPositiveButton("去开启", (d, w) -> openOverlaySettings())
+                    .setNegativeButton("仍要锁屏", (d, w) -> doEnterChildModeAndLock())
+                    .show();
+            return;
+        }
+        doEnterChildModeAndLock();
+    }
+
+    private void openOverlaySettings() {
+        try {
+            Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:" + getPackageName()));
+            startActivity(intent);
+        } catch (Exception e) {
+            // 少数电视没有直接的悬浮窗授权页，退回应用详情页让用户手动开
+            try {
+                startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.parse("package:" + getPackageName())));
+            } catch (Exception e2) {
+                toast("请在系统设置 → 应用权限中开启「悬浮窗/显示在其他应用上层」");
+            }
+        }
+    }
+
+    private boolean needsOverlayPermission() {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this);
+    }
+
+    /**
+     * 打开 App 时自动检查悬浮窗权限；没有就弹窗并给出“去开启设置”按钮。
+     * 每次打开 App 只提示一次，用户选“稍后”不会反复弹。
+     */
+    private void promptOverlayPermissionIfNeeded() {
+        if (overlayPromptShown || !needsOverlayPermission()) return;
+        overlayPromptShown = true;
+
+        new AlertDialog.Builder(this)
+                .setTitle("请开启「悬浮窗」权限")
+                .setMessage("Android 10 及以上需要这个权限，才能在时间到后自动弹出答题界面、"
+                        + "并在按 HOME 时继续挡住电视。\n\n点击下方按钮去系统设置里允许本应用「显示在其他应用上层」。")
+                .setPositiveButton("去开启设置", (d, w) -> openOverlaySettings())
+                .setNegativeButton("稍后", null)
+                .show();
+    }
+
+    private void doEnterChildModeAndLock() {
         pref.setMode(PrefManager.MODE_CHILD);
         pref.setLocked(true);
         pref.setHomeAliasEnabled(this, true);
@@ -516,6 +582,19 @@ public class MainActivity extends AppCompatActivity {
         // 模式
         boolean child = pref.isChildMode();
         tvMode.setText("当前模式：" + (child ? "孩子模式（答题解锁）" : "家长模式（不弹题）"));
+
+        // 悬浮窗权限（Android 10+ 自动锁屏依赖它）
+        if (tvOverlayHint != null) {
+            boolean canOverlay = Build.VERSION.SDK_INT < Build.VERSION_CODES.M
+                    || Settings.canDrawOverlays(this);
+            if (canOverlay) {
+                tvOverlayHint.setText("悬浮窗权限：已开启（到点自动锁屏/拦截 HOME 更可靠）");
+                tvOverlayHint.setTextColor(getResources().getColor(R.color.correct_green));
+            } else {
+                tvOverlayHint.setText("悬浮窗权限：未开启（点击这里去开启，否则到点可能不弹题）");
+                tvOverlayHint.setTextColor(getResources().getColor(R.color.wrong_red));
+            }
+        }
 
         // 年级 / 科目
         int grade = pref.getGrade();

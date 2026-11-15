@@ -33,14 +33,20 @@ public class LockScreenActivity extends AppCompatActivity {
 
     private static final String TAG = "LockScreen";
 
+    /** 答题界面是否在前台（供 LockService 判断要不要加悬浮窗，避免盖住题目）。 */
+    private static boolean sShowing = false;
+
+    public static boolean isShowing() {
+        return sShowing;
+    }
+
     /**
      * 【隐藏总解锁码】家长同时忘记 PIN 和解锁问题时的最终兜底。
      * 只存在于代码里，不在任何界面、提示或文档中显示；普通 PIN 为 4 位，它是 8 位。
      */
     private static final String HIDDEN_MASTER_PIN = "31415926";
-    private static final int PIN_WRONG_TIMEOUT_MS = 1500;
-    /** 输入内容恰好是隐藏码前缀时，给更长的停顿时间（避免老人按键慢被中途清空）。 */
-    private static final int PIN_HIDDEN_PREFIX_TIMEOUT_MS = 4000;
+    /** 输入内容恰好是隐藏码前缀时，允许的最长停顿（给按键慢的家长留足时间）。 */
+    private static final int PIN_HIDDEN_PREFIX_TIMEOUT_MS = 6000;
     private PrefManager pref;
     private QuestionBank bank;
 
@@ -430,6 +436,11 @@ public class LockScreenActivity extends AppCompatActivity {
         updatePinDisplay();
 
         int len = pinInput.length();
+        if (len < 4) {
+            // 不足 4 位：不启动任何超时，随便输多慢都不会被清空
+            return;
+        }
+
         if (len == 4) {
             if (pinInput.toString().equals(pref.getParentPin())) {
                 if (pref.isPinLocked()) {
@@ -443,22 +454,31 @@ public class LockScreenActivity extends AppCompatActivity {
                 }
                 return;
             }
-            // 可能是 4 位 PIN 输错，也可能是 8 位隐藏码的前 4 位：
-            // 是隐藏码前缀时多等一会儿，否则短暂停顿后按错误处理。
-            handler.postDelayed(pinWrongRunnable,
-                    HIDDEN_MASTER_PIN.startsWith(pinInput.toString())
-                            ? PIN_HIDDEN_PREFIX_TIMEOUT_MS : PIN_WRONG_TIMEOUT_MS);
-        } else if (len == 8) {
+            if (!HIDDEN_MASTER_PIN.startsWith(pinInput.toString())) {
+                // 普通 4 位 PIN 输错：立即提示并清空（和以前行为一致）
+                handlePinWrong();
+            } else {
+                // 恰好是隐藏码的前 4 位：先别清空，给足时间继续输入
+                handler.postDelayed(pinWrongRunnable, PIN_HIDDEN_PREFIX_TIMEOUT_MS);
+            }
+            return;
+        }
+
+        if (len == 8) {
             // 隐藏总解锁码（只做比较，不在界面显示）
             if (pinInput.toString().equals(HIDDEN_MASTER_PIN)) {
                 unlockToParentMode();
             } else {
                 handlePinWrong();
             }
+            return;
+        }
+
+        // 5~7 位：只有隐藏码前缀才会走到这里（否则上一轮已经清空）
+        if (!HIDDEN_MASTER_PIN.startsWith(pinInput.toString())) {
+            handlePinWrong();
         } else {
-            handler.postDelayed(pinWrongRunnable,
-                    HIDDEN_MASTER_PIN.startsWith(pinInput.toString())
-                            ? PIN_HIDDEN_PREFIX_TIMEOUT_MS : PIN_WRONG_TIMEOUT_MS);
+            handler.postDelayed(pinWrongRunnable, PIN_HIDDEN_PREFIX_TIMEOUT_MS);
         }
     }
 
@@ -574,6 +594,9 @@ public class LockScreenActivity extends AppCompatActivity {
     @Override
     protected void onPause() {
         super.onPause();
+        sShowing = false;
+        // 被 HOME/返回切走时让服务重新盖上悬浮窗，防止孩子绕过锁屏
+        LockService.setLockScreenVisible(false);
         if (pref.isLocked()) {
             handler.postDelayed(reLockRunnable, RELOCK_DELAY_MS);
         }
@@ -584,6 +607,9 @@ public class LockScreenActivity extends AppCompatActivity {
         super.onResume();
         handler.removeCallbacks(reLockRunnable);
         hideSystemUI();
+        sShowing = true;
+        // 答题界面在前台：移走悬浮窗，否则会挡住题目
+        LockService.setLockScreenVisible(true);
     }
 
     @Override

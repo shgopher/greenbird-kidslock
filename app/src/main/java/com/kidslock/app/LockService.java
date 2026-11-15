@@ -1,6 +1,5 @@
 package com.kidslock.app;
 
-import android.app.ActivityManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -27,7 +26,6 @@ import android.widget.FrameLayout;
 
 import androidx.core.app.NotificationCompat;
 
-import java.util.List;
 
 /**
  * 前台服务，三种工作：
@@ -45,6 +43,10 @@ public class LockService extends Service {
     private static final String CHANNEL_ID = "kids_lock_timer";
     private static final int NOTIFICATION_ID = 1001;
 
+    /** 供锁屏 Activity 通知“答题界面是否在前台”，避免悬浮窗盖住答题页。 */
+    private static LockService sInstance;
+    private boolean lockScreenVisible = false;
+
     private PrefManager pref;
     private Handler handler;
     private Runnable tickRunnable;
@@ -52,15 +54,34 @@ public class LockService extends Service {
 
     private WindowManager windowManager;
     private View overlayView;
+    /** 自动拉起答题界面的节流时间，避免每 800ms 重复 startActivity 造成闪烁。 */
+    private long lastPullMs = 0;
 
     @Override
     public void onCreate() {
         super.onCreate();
+        sInstance = this;
         pref = new PrefManager(this);
         handler = new Handler(Looper.getMainLooper());
         windowManager = (WindowManager) getSystemService(Context.WINDOW_SERVICE);
         createNotificationChannel();
         Log.i(TAG, "LockService created");
+    }
+
+    /**
+     * 锁屏答题界面前台状态变化：
+     * - 可见：移除悬浮窗，否则悬浮窗会盖住题目；
+     * - 被 HOME/返回切走：立刻重新盖上悬浮窗，防止孩子直接用电视。
+     */
+    public static void setLockScreenVisible(boolean visible) {
+        LockService s = sInstance;
+        if (s == null) return;
+        s.lockScreenVisible = visible;
+        if (visible) {
+            s.hideOverlay();
+        } else if (s.pref != null && s.pref.isLocked()) {
+            s.showOverlayIfPermitted();
+        }
     }
 
     @Override
@@ -90,7 +111,9 @@ public class LockService extends Service {
         if (pref.isLocked()) {
             Log.i(TAG, "Device locked, starting lock watchdog");
             startWatchdog();
-            showOverlayIfPermitted();
+            if (!lockScreenVisible && !LockScreenActivity.isShowing()) {
+                showOverlayIfPermitted();
+            }
             return START_STICKY;
         }
 
@@ -162,6 +185,8 @@ public class LockService extends Service {
             return;
         }
         Log.i(TAG, "Triggering lock screen!");
+        lockScreenVisible = false;
+        lastPullMs = System.currentTimeMillis();
         pref.setLocked(true);
         pref.setHomeAliasEnabled(this, true);
         pref.stopTimer();
@@ -189,7 +214,13 @@ public class LockService extends Service {
             @Override
             public void run() {
                 if (!pref.isLocked()) {
-                    // 已解锁，守护任务结束
+                    // 刚解锁、还在自由观看窗口内：切回计时，别把服务停掉（否则到点不会再锁）
+                    if (pref.isTimerActive()) {
+                        Log.i(TAG, "Free window active, back to ticking");
+                        startTicking();
+                        return;
+                    }
+                    // 已解锁且没有计时，守护任务结束
                     Log.i(TAG, "Unlocked, watchdog stopping");
                     hideOverlay();
                     stopForeground(true);
@@ -197,38 +228,25 @@ public class LockService extends Service {
                     return;
                 }
 
-                // 如果锁屏界面本身已经跑到前台，就不需要重复拉起，避免刷屏
-                if (!isLockScreenOnTop()) {
-                    // 只有悬浮窗权限没开、且锁屏不在前台时，才尝试直接 startActivity。
-                    // 否则靠悬浮窗拦截即可。
-                    if (!canDrawOverlays()) {
-                        Log.i(TAG, "Lock screen not on top, trying direct pull");
+                if (lockScreenVisible || LockScreenActivity.isShowing()) {
+                    // 答题界面在前台：不要盖悬浮窗
+                    hideOverlay();
+                } else {
+                    // 尝试自动拉起答题界面（每 2 秒最多一次）。
+                    // Android 10+ 若已授予悬浮窗权限，系统允许该场景启动 Activity；
+                    // 若仍被拦截，则悬浮窗会盖住桌面，点击悬浮窗也能进入答题。
+                    long now = System.currentTimeMillis();
+                    if (now - lastPullMs > 2000) {
+                        lastPullMs = now;
                         startLockScreenActivity();
                     }
+                    showOverlayIfPermitted();
                 }
-
-                // 悬浮窗应该一直显示，防止被桌面覆盖
-                showOverlayIfPermitted();
 
                 handler.postDelayed(this, 800);
             }
         };
         handler.post(watchdogRunnable);
-    }
-
-    private boolean isLockScreenOnTop() {
-        try {
-            ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
-            if (am == null) return false;
-            List<ActivityManager.RunningTaskInfo> tasks = am.getRunningTasks(1);
-            if (tasks == null || tasks.isEmpty()) return false;
-            ComponentName top = tasks.get(0).topActivity;
-            if (top == null) return false;
-            return top.getClassName().contains("LockScreen");
-        } catch (Exception e) {
-            Log.e(TAG, "getRunningTasks failed", e);
-            return false;
-        }
     }
 
     // ==================== 悬浮窗覆盖层 ====================
@@ -242,6 +260,10 @@ public class LockService extends Service {
      * 拦截孩子的所有触摸/按键操作，引导回到锁屏界面。
      */
     private void showOverlayIfPermitted() {
+        // 答题界面在前台时不要加悬浮窗（否则会盖住题目）
+        if (LockScreenActivity.isShowing()) {
+            return;
+        }
         if (!canDrawOverlays()) {
             Log.d(TAG, "Overlay permission not granted, skip overlay");
             return;
@@ -388,6 +410,7 @@ public class LockService extends Service {
 
     @Override
     public void onDestroy() {
+        if (sInstance == this) sInstance = null;
         if (tickRunnable != null) {
             handler.removeCallbacks(tickRunnable);
         }

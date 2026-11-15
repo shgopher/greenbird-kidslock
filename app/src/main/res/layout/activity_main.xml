@@ -319,6 +319,19 @@
             android:textSize="@dimen/text_body"
             android:layout_marginBottom="@dimen/spacing_small" />
 
+        <!-- 悬浮窗权限状态：Android 10+ 到点自动弹题依赖它 -->
+        <TextView
+            android:id="@+id/tvOverlayHint"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/text_secondary"
+            android:textSize="@dimen/text_body"
+            android:gravity="center"
+            android:focusable="true"
+            android:clickable="true"
+            android:padding="@dimen/spacing_small"
+            android:layout_marginBottom="@dimen/spacing_small" />
+
         <Button
             android:id="@+id/btnEnableChild"
             android:layout_width="wrap_content"
