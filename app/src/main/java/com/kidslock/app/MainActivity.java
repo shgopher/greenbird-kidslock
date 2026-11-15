@@ -1,6 +1,7 @@
 package com.kidslock.app;
 
 import android.app.AlertDialog;
+import android.content.ComponentName;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.os.Build;
@@ -8,6 +9,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.net.Uri;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.provider.Settings;
 import android.text.InputType;
 import android.view.Gravity;
@@ -37,8 +39,8 @@ public class MainActivity extends AppCompatActivity {
     private Button btnGradeDown, btnGradeUp;
     private Button btnEnableChild, btnEnableParent;
     private Button btnConfigOnline, btnToggleOnline;
-    /** 本次打开 App 是否已经自动弹过“悬浮窗权限”提示，避免反复打扰。 */
-    private boolean overlayPromptShown = false;
+    /** 本次打开 App 是否已经自动弹过“开机锁屏权限”引导，避免反复打扰。 */
+    private boolean permissionPromptShown = false;
 
     private final Runnable updateRunnable = new Runnable() {
         @Override
@@ -67,7 +69,7 @@ public class MainActivity extends AppCompatActivity {
         initViews();
         setupListeners();
         updateStatus();
-        promptOverlayPermissionIfNeeded();
+        promptPermissionsIfNeeded();
     }
 
     @Override
@@ -87,12 +89,10 @@ public class MainActivity extends AppCompatActivity {
         tvRemaining = findViewById(R.id.tvRemaining);
         tvMode = findViewById(R.id.tvMode);
         tvOverlayHint = findViewById(R.id.tvOverlayHint);
+        // 状态行作为“权限管理”入口：总是打开三项设置引导
         tvOverlayHint.setOnClickListener(v -> {
-            if (needsOverlayPermission()) {
-                openOverlaySettings();
-            } else {
-                toast("悬浮窗权限已开启");
-            }
+            if (isFinishing()) return;
+            showPermissionGuideDialog(true, true);
         });
         tvGrade = findViewById(R.id.tvGrade);
         tvSubjects = findViewById(R.id.tvSubjects);
@@ -230,20 +230,128 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * 打开 App 时自动检查悬浮窗权限；没有就弹窗并给出“去开启设置”按钮。
-     * 每次打开 App 只提示一次，用户选“稍后”不会反复弹。
+     * 打开 App 时检查“开机自动锁屏”需要的三项设置：
+     * 悬浮窗权限（可检测）、电池省电白名单（可检测）、开机自启动（无法检测，只能引导）。
+     * 每次打开 App 只提示一次；三项都正常时不再打扰。
      */
-    private void promptOverlayPermissionIfNeeded() {
-        if (overlayPromptShown || !needsOverlayPermission()) return;
-        overlayPromptShown = true;
+    private void promptPermissionsIfNeeded() {
+        if (permissionPromptShown) return;
+        boolean needOverlay = needsOverlayPermission();
+        boolean needBattery = !isIgnoringBatteryOptimizations();
+        // “开机自启动”无法检测，至少保证首次启动时把入口展示过一次
+        boolean autoStartGuideSeen = getSharedPreferences("kids_lock_ui", MODE_PRIVATE)
+                .getBoolean("autostart_guide_seen", false);
+        if (!needOverlay && !needBattery && autoStartGuideSeen) return;
 
-        new AlertDialog.Builder(this)
-                .setTitle("请开启「悬浮窗」权限")
-                .setMessage("Android 10 及以上需要这个权限，才能在时间到后自动弹出答题界面、"
-                        + "并在按 HOME 时继续挡住电视。\n\n点击下方按钮去系统设置里允许本应用「显示在其他应用上层」。")
-                .setPositiveButton("去开启设置", (d, w) -> openOverlaySettings())
-                .setNegativeButton("稍后", null)
-                .show();
+        permissionPromptShown = true;
+        getSharedPreferences("kids_lock_ui", MODE_PRIVATE)
+                .edit().putBoolean("autostart_guide_seen", true).apply();
+        showPermissionGuideDialog(needOverlay, needBattery);
+    }
+
+    /** 合并的权限引导弹窗：三个按钮分别去对应设置页。 */
+    private void showPermissionGuideDialog(boolean needOverlay, boolean needBattery) {
+        final AlertDialog[] holder = new AlertDialog[1];
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setGravity(Gravity.CENTER_HORIZONTAL);
+        box.setPadding(dp(28), dp(20), dp(28), dp(20));
+        box.setMinimumWidth(dp(520));
+
+        TextView title = new TextView(this);
+        title.setText("开机自动锁屏还需要以下设置");
+        title.setTextColor(getResources().getColor(R.color.accent));
+        title.setTextSize(22);
+        title.setGravity(Gravity.CENTER);
+        box.addView(title);
+
+        TextView desc = new TextView(this);
+        desc.setText("建议全部开启，否则关机重启或到点后可能无法自动弹题：");
+        desc.setTextColor(getResources().getColor(R.color.text_secondary));
+        desc.setTextSize(16);
+        desc.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams descLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        descLp.setMargins(0, dp(8), 0, dp(12));
+        box.addView(desc, descLp);
+
+        if (needOverlay) {
+            box.addView(guideButton("① 开启「悬浮窗」权限", v -> openOverlaySettings()));
+        }
+        if (needBattery) {
+            box.addView(guideButton("② 加入电池省电白名单", v -> requestIgnoreBatteryOptimizations()));
+        }
+        box.addView(guideButton("③ 允许「开机自启动」", v -> openAutoStartSettings()));
+
+        Button close = guideButton("稍后再说", v -> {
+            if (holder[0] != null) holder[0].dismiss();
+        });
+        LinearLayout.LayoutParams closeLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(56));
+        closeLp.setMargins(dp(4), dp(12), dp(4), dp(4));
+        box.addView(close, closeLp);
+
+        AlertDialog dialog = new AlertDialog.Builder(this).setView(box).create();
+        holder[0] = dialog;
+        dialog.show();
+    }
+
+    private Button guideButton(String text, android.view.View.OnClickListener listener) {
+        Button b = new Button(this);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(56));
+        lp.setMargins(dp(4), dp(4), dp(4), dp(4));
+        b.setLayoutParams(lp);
+        b.setText(text);
+        b.setTextSize(18);
+        b.setTextColor(getResources().getColor(R.color.btn_text));
+        b.setBackgroundResource(R.drawable.btn_settings_bg);
+        b.setFocusable(true);
+        b.setClickable(true);
+        b.setAllCaps(false);
+        b.setOnClickListener(listener);
+        return b;
+    }
+
+    private boolean isIgnoringBatteryOptimizations() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return true;
+        PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+        return pm != null && pm.isIgnoringBatteryOptimizations(getPackageName());
+    }
+
+    private void requestIgnoreBatteryOptimizations() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return;
+        try {
+            Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                    Uri.parse("package:" + getPackageName()));
+            startActivity(intent);
+        } catch (Exception e) {
+            try {
+                startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
+            } catch (Exception e2) {
+                toast("请在系统设置 → 电池/省电管理中允许本应用后台运行");
+            }
+        }
+    }
+
+    /** 开机自启动没有统一 API：先试小米安全中心，再退回应用详情页。 */
+    private void openAutoStartSettings() {
+        try {
+            Intent miui = new Intent();
+            miui.setComponent(new ComponentName("com.miui.securitycenter",
+                    "com.miui.permcenter.autostart.AutoStartManagementActivity"));
+            startActivity(miui);
+            return;
+        } catch (Exception ignored) {
+        }
+        try {
+            startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:" + getPackageName())));
+            toast("若没有自启动选项，请到电视「安全中心 → 自启动管理」中允许本应用");
+        } catch (Exception e) {
+            toast("请到电视「安全中心 → 自启动管理」中允许本应用");
+        }
     }
 
     private void doEnterChildModeAndLock() {
@@ -588,10 +696,10 @@ public class MainActivity extends AppCompatActivity {
             boolean canOverlay = Build.VERSION.SDK_INT < Build.VERSION_CODES.M
                     || Settings.canDrawOverlays(this);
             if (canOverlay) {
-                tvOverlayHint.setText("悬浮窗权限：已开启（到点自动锁屏/拦截 HOME 更可靠）");
+                tvOverlayHint.setText("悬浮窗权限：已开启（点击管理开机锁屏权限）");
                 tvOverlayHint.setTextColor(getResources().getColor(R.color.correct_green));
             } else {
-                tvOverlayHint.setText("悬浮窗权限：未开启（点击这里去开启，否则到点可能不弹题）");
+                tvOverlayHint.setText("悬浮窗权限：未开启（点击设置悬浮窗/自启/省电白名单）");
                 tvOverlayHint.setTextColor(getResources().getColor(R.color.wrong_red));
             }
         }

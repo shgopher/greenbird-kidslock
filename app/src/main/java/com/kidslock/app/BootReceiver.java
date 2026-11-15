@@ -41,11 +41,7 @@ public class BootReceiver extends BroadcastReceiver {
             Log.i(TAG, "Device was locked, showing lock screen");
             pref.setHomeAliasEnabled(context, true);
             startLockService(context);
-            Intent lockIntent = new Intent(context, LockScreenActivity.class);
-            lockIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
-                    | Intent.FLAG_ACTIVITY_CLEAR_TASK
-                    | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS);
-            context.startActivity(lockIntent);
+            startLockUi(context);
             return;
         }
 
@@ -56,21 +52,34 @@ public class BootReceiver extends BroadcastReceiver {
             pref.setHomeAliasEnabled(context, true);
             pref.stopTimer();
             startLockService(context);
-            Intent lockIntent = new Intent(context, LockScreenActivity.class);
-            lockIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
-                    | Intent.FLAG_ACTIVITY_CLEAR_TASK
-                    | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS);
+            startLockUi(context);
+        }
+    }
+
+    /** 开机时直接弹答题界面；Android 10+ 可能被系统拦截，服务会通过悬浮窗/重试兜底。 */
+    private void startLockUi(Context context) {
+        Intent lockIntent = new Intent(context, LockScreenActivity.class);
+        lockIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                | Intent.FLAG_ACTIVITY_CLEAR_TASK
+                | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS);
+        try {
             context.startActivity(lockIntent);
+        } catch (Exception e) {
+            Log.e(TAG, "start lock activity on boot failed", e);
         }
     }
 
     private void startLockService(Context context) {
         Intent serviceIntent = new Intent(context, LockService.class);
         serviceIntent.putExtra("action", "start_timer");
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            context.startForegroundService(serviceIntent);
-        } else {
-            context.startService(serviceIntent);
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(serviceIntent);
+            } else {
+                context.startService(serviceIntent);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "start LockService on boot failed", e);
         }
     }
 }
