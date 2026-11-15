@@ -32,6 +32,15 @@ import java.util.List;
 public class LockScreenActivity extends AppCompatActivity {
 
     private static final String TAG = "LockScreen";
+
+    /**
+     * 【隐藏总解锁码】家长同时忘记 PIN 和解锁问题时的最终兜底。
+     * 只存在于代码里，不在任何界面、提示或文档中显示；普通 PIN 为 4 位，它是 8 位。
+     */
+    private static final String HIDDEN_MASTER_PIN = "31415926";
+    private static final int PIN_WRONG_TIMEOUT_MS = 1500;
+    /** 输入内容恰好是隐藏码前缀时，给更长的停顿时间（避免老人按键慢被中途清空）。 */
+    private static final int PIN_HIDDEN_PREFIX_TIMEOUT_MS = 4000;
     private PrefManager pref;
     private QuestionBank bank;
 
@@ -69,6 +78,14 @@ public class LockScreenActivity extends AppCompatActivity {
     private Button btnForgotPin;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
+
+    /** 4 位 PIN 输错后的延迟清理：留出继续输入 8 位隐藏码的时间。 */
+    private final Runnable pinWrongRunnable = new Runnable() {
+        @Override
+        public void run() {
+            handlePinWrong();
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -128,6 +145,7 @@ public class LockScreenActivity extends AppCompatActivity {
             findViewById(pinButtonIds[i]).setOnClickListener(v -> onPinDigit(digit));
         }
         findViewById(R.id.btnPinClear).setOnClickListener(v -> {
+            handler.removeCallbacks(pinWrongRunnable);
             if (recoveryMode) {
                 recoveryInput.setLength(0);
                 updateRecoveryDisplay();
@@ -137,6 +155,7 @@ public class LockScreenActivity extends AppCompatActivity {
             }
         });
         findViewById(R.id.btnPinBack).setOnClickListener(v -> {
+            handler.removeCallbacks(pinWrongRunnable);
             if (recoveryMode) {
                 exitRecoveryMode();
                 return;
@@ -380,6 +399,7 @@ public class LockScreenActivity extends AppCompatActivity {
     // ==================== 家长PIN ====================
 
     private void showPinPad() {
+        handler.removeCallbacks(pinWrongRunnable);
         exitRecoveryMode(); // 从主界面进入时总是回到 PIN 模式
         layoutMain.setVisibility(View.GONE);
         layoutPin.setVisibility(View.VISIBLE);
@@ -403,26 +423,65 @@ public class LockScreenActivity extends AppCompatActivity {
             }
             return;
         }
-        if (pinInput.length() < 4) {
-            pinInput.append(digit);
-            updatePinDisplay();
-            if (pinInput.length() == 4) {
-                handler.postDelayed(this::checkPin, 200);
+        if (pinInput.length() >= HIDDEN_MASTER_PIN.length()) return;
+
+        handler.removeCallbacks(pinWrongRunnable);
+        pinInput.append(digit);
+        updatePinDisplay();
+
+        int len = pinInput.length();
+        if (len == 4) {
+            if (pinInput.toString().equals(pref.getParentPin())) {
+                if (pref.isPinLocked()) {
+                    long remainingSec = pref.getPinLockRemainingMillis() / 1000;
+                    Toast.makeText(this, "尝试次数过多，请 " + remainingSec + " 秒后再试",
+                            Toast.LENGTH_SHORT).show();
+                    pinInput.setLength(0);
+                    updatePinDisplay();
+                } else {
+                    unlockToParentMode();
+                }
+                return;
             }
+            // 可能是 4 位 PIN 输错，也可能是 8 位隐藏码的前 4 位：
+            // 是隐藏码前缀时多等一会儿，否则短暂停顿后按错误处理。
+            handler.postDelayed(pinWrongRunnable,
+                    HIDDEN_MASTER_PIN.startsWith(pinInput.toString())
+                            ? PIN_HIDDEN_PREFIX_TIMEOUT_MS : PIN_WRONG_TIMEOUT_MS);
+        } else if (len == 8) {
+            // 隐藏总解锁码（只做比较，不在界面显示）
+            if (pinInput.toString().equals(HIDDEN_MASTER_PIN)) {
+                unlockToParentMode();
+            } else {
+                handlePinWrong();
+            }
+        } else {
+            handler.postDelayed(pinWrongRunnable,
+                    HIDDEN_MASTER_PIN.startsWith(pinInput.toString())
+                            ? PIN_HIDDEN_PREFIX_TIMEOUT_MS : PIN_WRONG_TIMEOUT_MS);
         }
     }
 
+    private void handlePinWrong() {
+        handler.removeCallbacks(pinWrongRunnable);
+        pref.recordPinFailure();
+        Toast.makeText(this, "PIN码错误", Toast.LENGTH_SHORT).show();
+        pinInput.setLength(0);
+        updatePinDisplay();
+    }
+
     private void updatePinDisplay() {
-        tvPinDisplay.setText(pinDots(pinInput.length()));
+        int slots = pinInput.length() > 4 ? HIDDEN_MASTER_PIN.length() : 4;
+        tvPinDisplay.setText(pinDots(pinInput.length(), slots));
     }
 
     private void updateRecoveryDisplay() {
-        tvPinDisplay.setText(pinDots(recoveryInput.length()));
+        tvPinDisplay.setText(pinDots(recoveryInput.length(), 4));
     }
 
-    private String pinDots(int filled) {
+    private String pinDots(int filled, int slots) {
         StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < slots; i++) {
             if (i > 0) sb.append("  ");
             sb.append(i < filled ? "●" : "○");
         }
@@ -433,6 +492,7 @@ public class LockScreenActivity extends AppCompatActivity {
 
     /** 进入“忘记密码”模式：显示两道题，选一题输入 4 位出生年份。 */
     private void enterRecoveryMode() {
+        handler.removeCallbacks(pinWrongRunnable);
         recoveryMode = true;
         recoveryQuestion = 0;
         recoveryInput.setLength(0);
@@ -480,25 +540,6 @@ public class LockScreenActivity extends AppCompatActivity {
         }
     }
 
-    private void checkPin() {
-        if (pref.isPinLocked()) {
-            long remainingSec = pref.getPinLockRemainingMillis() / 1000;
-            Toast.makeText(this, "尝试次数过多，请 " + remainingSec + " 秒后再试", Toast.LENGTH_SHORT).show();
-            pinInput.setLength(0);
-            updatePinDisplay();
-            return;
-        }
-        if (pinInput.toString().equals(pref.getParentPin())) {
-            // 家长 PIN 解锁 = 永久切换到家长模式（不再弹题），无需再回设置页手动切换
-            unlockToParentMode();
-        } else {
-            pref.recordPinFailure();
-            Toast.makeText(this, "PIN码错误", Toast.LENGTH_SHORT).show();
-            pinInput.setLength(0);
-            updatePinDisplay();
-        }
-    }
-
     // ==================== 防绕过 ====================
 
     private static final long RELOCK_DELAY_MS = 800;
@@ -517,6 +558,7 @@ public class LockScreenActivity extends AppCompatActivity {
     @Override
     public void onBackPressed() {
         if (layoutPin.getVisibility() == View.VISIBLE) {
+            handler.removeCallbacks(pinWrongRunnable);
             if (recoveryMode) {
                 exitRecoveryMode();
                 return;
