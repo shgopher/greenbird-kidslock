@@ -1,4 +1,4 @@
-package com.kidslock.app;
+package com.steamaple.greenbirdkidslock;
 
 import android.app.AlertDialog;
 import android.content.ComponentName;
@@ -339,7 +339,7 @@ public class MainActivity extends AppCompatActivity {
         new AlertDialog.Builder(this)
                 .setTitle("加入电池省电白名单")
                 .setMessage("为避免锁屏服务被系统清理，请允许本应用后台运行。\n\n"
-                        + "一般路径：设置 → 应用 → 儿童锁屏 → 电池/省电 → 允许后台运行（或“不限制”）。\n\n"
+                        + "一般路径：设置 → 应用 → 绿鸟儿童锁屏大师 → 电池/省电 → 允许后台运行（或“不限制”）。\n\n"
                         + "电视系统如果不支持自动跳转，可点“打开应用详情”手动设置。")
                 .setPositiveButton("尝试打开系统设置", (d, w) -> openBatterySettings())
                 .setNeutralButton("打开应用详情", (d, w) -> openAppDetailsSettings())

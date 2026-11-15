@@ -1,4 +1,4 @@
-package com.kidslock.app;
+package com.steamaple.greenbirdkidslock;
 
 import android.content.ComponentName;
 import android.content.Context;
@@ -304,7 +304,7 @@ public class PrefManager {
      * 解锁时禁用，让按 HOME 键回到正常电视桌面。
      */
     public void setHomeAliasEnabled(Context context, boolean enabled) {
-        ComponentName alias = new ComponentName(context, "com.kidslock.app.LockScreenHome");
+        ComponentName alias = new ComponentName(context, "com.steamaple.greenbirdkidslock.LockScreenHome");
         PackageManager pm = context.getPackageManager();
         int state = enabled
                 ? PackageManager.COMPONENT_ENABLED_STATE_ENABLED

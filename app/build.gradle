@@ -16,11 +16,11 @@ def envKsFile = System.getenv("KEYSTORE_FILE")
 def hasEnvKs = envKsFile != null && !envKsFile.trim().isEmpty()
 
 android {
-    namespace 'com.kidslock.app'
+    namespace 'com.steamaple.greenbirdkidslock'
     compileSdk 34
 
     defaultConfig {
-        applicationId "com.kidslock.app"
+        applicationId "com.steamaple.greenbirdkidslock"
         minSdk 21
         targetSdk 33
         versionCode 1

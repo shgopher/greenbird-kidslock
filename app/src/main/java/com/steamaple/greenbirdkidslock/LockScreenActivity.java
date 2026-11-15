@@ -1,4 +1,4 @@
-package com.kidslock.app;
+package com.steamaple.greenbirdkidslock;
 
 import android.content.Intent;
 import android.os.Build;

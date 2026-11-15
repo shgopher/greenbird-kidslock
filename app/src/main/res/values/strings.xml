@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">儿童锁屏</string>
-    <string name="app_description">儿童电视锁屏 · 认字解锁</string>
+    <string name="app_name">绿鸟儿童锁屏大师</string>
+    <string name="app_description">绿鸟儿童锁屏大师 · 答题解锁</string>
 
     <!-- Lock Screen -->
     <string name="screen_locked">屏幕已锁定</string>
@@ -14,7 +14,7 @@
     <string name="pin_back">返回</string>
 
     <!-- Settings -->
-    <string name="settings_title">儿童锁屏设置</string>
+    <string name="settings_title">绿鸟儿童锁屏大师设置</string>
     <string name="section_timer">计时控制</string>
     <string name="section_config">参数配置</string>
     <string name="btn_start_timer">开始计时</string>
@@ -24,8 +24,8 @@
     <string name="btn_set_pin">设置家长PIN</string>
 
     <!-- Notification -->
-    <string name="notif_title">儿童锁屏运行中</string>
+    <string name="notif_title">绿鸟儿童锁屏大师运行中</string>
     <string name="notif_remaining">剩余观看时间</string>
-    <string name="channel_name">儿童锁屏计时</string>
-    <string name="channel_desc">观看时间计时通知</string>
+    <string name="channel_name">绿鸟儿童锁屏大师计时</string>
+    <string name="channel_desc">绿鸟儿童锁屏大师 · 观看时间计时</string>
 </resources>

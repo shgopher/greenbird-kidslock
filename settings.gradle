@@ -13,5 +13,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "KidsLock"
+rootProject.name = "GreenBirdKidsLock"
 include ':app'

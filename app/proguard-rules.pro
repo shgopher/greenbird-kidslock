@@ -1,2 +1,2 @@
 # Keep all app classes
--keep class com.kidslock.app.** { *; }
+-keep class com.steamaple.greenbirdkidslock.** { *; }

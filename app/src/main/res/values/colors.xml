@@ -24,6 +24,8 @@
     <color name="btn_text">#E0E1DD</color>
 
     <!-- 背景 -->
-    <color name="lock_bg">#0D1B2A</color>
-    <color name="settings_bg">#0D1B2A</color>
+    <!-- 锁屏答题页背景：与主页一致 RGB(50, 68, 70) -->
+    <color name="lock_bg">#324446</color>
+    <!-- 主页（设置页）背景：RGB(50, 68, 70) -->
+    <color name="settings_bg">#324446</color>
 </resources>

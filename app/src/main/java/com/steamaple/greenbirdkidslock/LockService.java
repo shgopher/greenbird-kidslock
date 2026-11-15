@@ -1,4 +1,4 @@
-package com.kidslock.app;
+package com.steamaple.greenbirdkidslock;
 
 import android.app.Notification;
 import android.app.NotificationChannel;
@@ -93,11 +93,11 @@ public class LockService extends Service {
         // super.onStartCommand()，系统根本不会回调 onStart，导致
         // ACTION_UNLOCK / ACTION_FREE_WINDOW 永远收不到。
         String action = intent != null ? intent.getAction() : null;
-        if ("com.kidslock.app.ACTION_UNLOCK".equals(action)) {
+        if ("com.steamaple.greenbirdkidslock.ACTION_UNLOCK".equals(action)) {
             unlockAndStop();
             return START_NOT_STICKY;
         }
-        if ("com.kidslock.app.ACTION_FREE_WINDOW".equals(action)) {
+        if ("com.steamaple.greenbirdkidslock.ACTION_FREE_WINDOW".equals(action)) {
             // 隐藏悬浮窗；非锁屏且计时活跃 → 进入自由窗口计时
             hideOverlay();
             if (!pref.isLocked() && pref.isTimerActive()) {
@@ -325,7 +325,7 @@ public class LockService extends Service {
      */
     public static void requestUnlock(Context context) {
         Intent intent = new Intent(context, LockService.class);
-        intent.setAction("com.kidslock.app.ACTION_UNLOCK");
+        intent.setAction("com.steamaple.greenbirdkidslock.ACTION_UNLOCK");
         context.startService(intent);
     }
 
@@ -335,7 +335,7 @@ public class LockService extends Service {
      */
     public static void requestFreeWindow(Context context) {
         Intent intent = new Intent(context, LockService.class);
-        intent.setAction("com.kidslock.app.ACTION_FREE_WINDOW");
+        intent.setAction("com.steamaple.greenbirdkidslock.ACTION_FREE_WINDOW");
         context.startService(intent);
     }
 
@@ -355,7 +355,7 @@ public class LockService extends Service {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel channel = new NotificationChannel(
                     CHANNEL_ID,
-                    "儿童锁屏计时",
+                    "绿鸟儿童锁屏大师计时",
                     NotificationManager.IMPORTANCE_LOW
             );
             channel.setDescription("观看时间计时通知");
@@ -374,7 +374,7 @@ public class LockService extends Service {
             long remaining = pref.getRemainingMillis();
             contentText = "自由观看中，剩余：" + formatTime(remaining) + " 后答题";
         } else {
-            contentText = "儿童锁屏待命";
+            contentText = "绿鸟儿童锁屏大师待命";
         }
 
         Intent openIntent = new Intent(this, MainActivity.class);
@@ -385,7 +385,7 @@ public class LockService extends Service {
         );
 
         return new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle("儿童锁屏运行中")
+                .setContentTitle("绿鸟儿童锁屏大师运行中")
                 .setContentText(contentText)
                 .setSmallIcon(android.R.drawable.ic_lock_idle_lock)
                 .setOngoing(true)
